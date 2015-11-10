@@ -39,7 +39,7 @@ def status(state):
     controller = OpsworksController(state.cluster, aws_profile=state.aws_profile)
     status = controller.status()
 #    log.debug("Status for cluster '%s': %s", state.cluster, status, extra=status)
-#    utils.print_status(status)
+    utils.print_status(status)
 
 @cli.group()
 def scale():

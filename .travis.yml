@@ -5,3 +5,6 @@ install:
   - pip install -r requirements.txt
 script: nosetests tests
 sudo: false
+notifications:
+  email:
+    - jay_luker@harvard.edu

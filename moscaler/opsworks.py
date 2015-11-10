@@ -80,13 +80,26 @@ class OpsworksController(object):
         return status
 
     def scale_to(self, workers):
+
         running_workers = len(self.online_workers)
-        if len(running_workers) == workers:
-            raise OpsworksControllerException("Cluster already at %d running workers" % workers)
-        elif len(running_workers) > workers:
-            self.scale_down(len(running_workers) - workers)
+
+        if running_workers == workers:
+            raise OpsworksControllerException(
+                "Cluster already at %d running workers" % workers
+            )
+        elif running_workers > workers:
+            self.scale_down(running_workers - workers)
         else:
-            self.scale_up(workers - len(running_workers))
+            self.scale_up(workers - running_workers)
+
+    def scale_up(self, workers):
+        pass
+
+    def scale_down(self, workers):
+        pass
+
+    def scale_auto(self):
+        pass
 
 class OpsworksInstance(object):
 

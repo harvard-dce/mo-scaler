@@ -11,10 +11,6 @@ from os import getenv as env
 base_dir = unipath.Path(__file__).absolute().parent
 dotenv.load_dotenv(base_dir.child('.env'))
 
-class ManagerState(object):
-    def __init__(self):
-        self.cluster = env('CLUSTER_NAME')
-
 @click.group()
 @click.option('-c','--cluster', help="opsworks cluster name")
 @click.option('-p','--profile', help="set/override default aws credentials profile")
@@ -22,40 +18,45 @@ class ManagerState(object):
 @click.pass_context
 def cli(ctx, cluster, profile):
 
-    state = ManagerState()
-    if cluster is not None:
-        state.cluster = cluster
-    elif state.cluster is None:
-        raise UsageError("No cluster specified")
-    state.aws_profile = profile
+    if cluster is None:
+        cluster = env('CLUSTER_NAME')
+        if cluster is None:
+            raise UsageError("No cluster specified")
 
-    ctx.obj = state
+    ctx.obj = OpsworksController(cluster, aws_profile=profile)
 
 
 @cli.command()
 @click.pass_obj
-def status(state):
+def status(controller):
 
-    controller = OpsworksController(state.cluster, aws_profile=state.aws_profile)
     status = controller.status()
-#    log.debug("Status for cluster '%s': %s", state.cluster, status, extra=status)
     utils.print_status(status)
 
 @cli.group()
 def scale():
     pass
 
+@scale.command()
+@click.argument('num_workers', type=int)
+@click.pass_obj
+def to(controller, num_workers):
+
+    controller.scale_to(num_workers)
 
 @scale.command()
-def up(state):
+@click.pass_obj
+def up(controller):
     pass
 
 @scale.command()
-def down(state):
+@click.pass_obj
+def down(controller):
     pass
 
 @scale.command()
-def auto(state):
+@click.pass_obj
+def auto(controller):
     pass
 
 if __name__ == "__main__":

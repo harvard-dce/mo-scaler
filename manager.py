@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import boto3
 import click
 import dotenv
 import unipath
@@ -19,11 +20,14 @@ dotenv.load_dotenv(base_dir.child('.env'))
 def cli(ctx, cluster, profile):
 
     if cluster is None:
-        cluster = env('CLUSTER_NAME')
+        cluster = env('MOSCALER_CLUSTER')
         if cluster is None:
             raise UsageError("No cluster specified")
 
-    ctx.obj = OpsworksController(cluster, aws_profile=profile)
+    if profile is not None:
+        boto3.setup_default_session(profile_name=profile)
+
+    ctx.obj = OpsworksController(cluster)
 
 
 @cli.command()
@@ -34,8 +38,11 @@ def status(controller):
     utils.print_status(status)
 
 @cli.group()
-def scale():
-    pass
+@click.option('-f', '--force', is_flag=True)
+@click.pass_obj
+def scale(controller, force):
+    if force:
+        controller.force = True
 
 @scale.command()
 @click.argument('num_workers', type=int)

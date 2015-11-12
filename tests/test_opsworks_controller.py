@@ -30,10 +30,8 @@ class TestOpsworksController(unittest.TestCase):
             autospec=True,
             return_value=mock_opsworks
         )
-        self.mock_mh = patch(
-            'moscaler.opsworks.MatterhornController',
-            autospec=True
-        )
+        self.mock_mh = patch('moscaler.opsworks.MatterhornController')
+
         self.mock_boto3.start()
         self.mock_mh.start()
         self.addCleanup(self.mock_boto3.stop)
@@ -42,7 +40,7 @@ class TestOpsworksController(unittest.TestCase):
         self.controller = OpsworksController('test-stack')
 
     def _create_instance(self, inst_dict):
-        return OpsworksInstance(inst_dict, self.controller, self.controller.mh)
+        return OpsworksInstance(inst_dict, self.controller)
 
     def _create_instances(self, *inst_dicts):
         return [self._create_instance(x) for x in inst_dicts]

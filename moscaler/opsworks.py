@@ -1,3 +1,5 @@
+import json
+
 import arrow
 import boto3
 import logging
@@ -101,15 +103,16 @@ class OpsworksController(object):
             if hasattr(inst, 'Ec2InstanceId'):
                 inst_status['ec2_id'] = inst.Ec2InstanceId
             status['instances'].append(inst_status)
+        log.debug("Cluster status: %s" % json.dumps(status))
         return status
 
     def start_instance(self, inst):
         log.info("Starting %r", inst)
-        self.opsworks.start_instance(inst.InstanceId)
+        self.opsworks.start_instance(InstanceId=inst.InstanceId)
 
     def stop_instance(self, inst):
         log.info("Stopping %r", inst)
-        self.opsworks.stop_instance(inst.InstanceId)
+        self.opsworks.stop_instance(InstanceId=inst.InstanceId)
 
     def scale_to(self, num_workers):
 

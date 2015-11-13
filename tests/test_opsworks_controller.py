@@ -1,6 +1,8 @@
 
 import unittest
 from mock import patch, MagicMock
+from datetime import datetime
+from freezegun import freeze_time
 
 import boto3
 from moscaler.exceptions import *
@@ -41,11 +43,14 @@ class TestOpsworksController(unittest.TestCase):
 
         self.controller = OpsworksController('test-stack')
 
-    def _create_instance(self, inst_dict):
-        return OpsworksInstance(inst_dict, self.controller)
+    def _create_instance(self, inst_dict, wrap=False):
+        instance = OpsworksInstance(inst_dict, self.controller)
+        if wrap:
+            return MagicMock(wraps=instance)
+        return instance
 
-    def _create_instances(self, *inst_dicts):
-        return [self._create_instance(x) for x in inst_dicts]
+    def _create_instances(self, *inst_dicts, **kwargs):
+        return [self._create_instance(x, **kwargs) for x in inst_dicts]
 
     def test_instances(self):
 
@@ -180,24 +185,92 @@ class TestOpsworksController(unittest.TestCase):
 
     def test_scale_down(self):
 
+        self.controller._instances = self._create_instances(
+            {'InstanceId': '1', 'Hostname': 'workers1', 'Status': 'online'},
+            {'InstanceId': '2', 'Hostname': 'workers2', 'Status': 'online'},
+            {'InstanceId': '3', 'Hostname': 'workers3', 'Status': 'online'},
+            {'InstanceId': '4', 'Hostname': 'workers4', 'Status': 'online'},
+            wrap=True
+        )
+        self.controller.mh.filter_idle.return_value = self.controller._instances
+        self.controller.scale_down(2, check_uptime=False)
+        self.assertEqual(
+            [1,1,0,0],
+            [x.stop.call_count for x in self.controller._instances]
+        )
+
+    def test_scale_down_uptime_check(self):
+
         instances = self._create_instances(
             {'InstanceId': '1', 'Hostname': 'workers1', 'Status': 'online'},
             {'InstanceId': '2', 'Hostname': 'workers2', 'Status': 'online'},
             {'InstanceId': '3', 'Hostname': 'workers3', 'Status': 'online'},
             {'InstanceId': '4', 'Hostname': 'workers4', 'Status': 'online'},
+            wrap=True
         )
-        wrapped = []
-        for inst in instances:
-            inst = MagicMock(wraps=inst)
-            inst.stop.return_value = 1
-            wrapped.append(inst)
-        self.controller._instances = wrapped
-        self.controller.mh.filter_idle.return_value =wrapped
-        self.controller.scale_down(2, check_uptime=False)
+
+        instances[0]._mock_wraps.ec2_inst = MagicMock(launch_time=datetime(2015, 11, 13, 10, 45, 0))
+        instances[1]._mock_wraps.ec2_inst = MagicMock(launch_time=datetime(2015, 11, 13, 10, 20, 0))
+        instances[2]._mock_wraps.ec2_inst = MagicMock(launch_time=datetime(2015, 11, 13, 10, 04, 0))
+        instances[3]._mock_wraps.ec2_inst = None
+
+        self.controller._instances = instances
+        self.controller.mh.filter_idle.return_value = self.controller._instances
+
+        with freeze_time("2015-11-13 11:00:00"):
+            self.controller.scale_down(2, check_uptime=True)
         self.assertEqual(
-            [1,1,0,0],
-            [x.stop.call_count for x in wrapped]
+            [0,0,1,0],
+            [x.stop.call_count for x in self.controller._instances]
         )
 
+        with patch('moscaler.opsworks.IDLE_UPTIME_THRESHOLD', 30):
+            with freeze_time("2015-11-13 12:00:00"):
+                self.controller.scale_down(2, check_uptime=True)
+        self.assertEqual(
+            [0,1,2,0],
+            [x.stop.call_count for x in self.controller._instances]
+        )
+
+        with patch('moscaler.opsworks.IDLE_UPTIME_THRESHOLD', 59):
+            with freeze_time("2015-11-13 13:00:00"):
+                self.assertRaisesRegexp(
+                    OpsworksScalingException,
+                    "No workers available to stop",
+                    self.controller.scale_down,
+                    2,
+                    check_uptime=True
+                )
 
 
+    def test_scale_up(self):
+
+        self.controller._instances = self._create_instances(
+            {'InstanceId': '1', 'Hostname': 'workers1', 'Status': 'online'},
+            {'InstanceId': '2', 'Hostname': 'workers2', 'Status': 'online'},
+            {'InstanceId': '3', 'Hostname': 'workers3', 'Status': 'stopped'},
+            {'InstanceId': '4', 'Hostname': 'workers4', 'Status': 'online'},
+            {'InstanceId': '5', 'Hostname': 'workers5', 'Status': 'stopped'},
+            wrap=True
+        )
+        self.controller.scale_up(2)
+        self.assertEqual(
+            [0,0,1,0,1],
+            [x.start.call_count for x in self.controller._instances]
+        )
+
+    def test_scale_up_not_enough_workers(self):
+
+        self.controller._instances = self._create_instances(
+            {'InstanceId': '1', 'Hostname': 'workers1', 'Status': 'online'},
+            {'InstanceId': '2', 'Hostname': 'workers2', 'Status': 'online'},
+            {'InstanceId': '3', 'Hostname': 'workers3', 'Status': 'stopped'},
+            {'InstanceId': '4', 'Hostname': 'workers4', 'Status': 'online'},
+            {'InstanceId': '5', 'Hostname': 'workers5', 'Status': 'stopped'},
+        )
+        self.assertRaisesRegexp(
+            OpsworksScalingException,
+            "Cluster does not have 3",
+            self.controller.scale_up,
+            3
+        )

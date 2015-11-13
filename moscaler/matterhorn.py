@@ -160,7 +160,7 @@ class MatterhornController(object):
             finally:
                 if restore_state:
                     for inst in for_maintenance:
-                        if not inst.is_online():
+                        if inst.action_taken == 'stopped':
                             log.debug("not unsetting maintenance for %r as it was stopped", inst)
                         else:
                             self.maintenance_off(inst)

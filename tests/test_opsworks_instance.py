@@ -90,3 +90,14 @@ class TestOpsworksInstance(unittest.TestCase):
             self.assertEqual(inst.billed_minutes(), 32)
 
 
+    def test_start(self):
+        inst = self._create({})
+        inst.start()
+        self.mock_controller.start_instance.assert_called_once_with(inst)
+        self.assertEqual(inst.action_taken, 'started')
+
+    def test_stop(self):
+        inst = self._create({})
+        inst.stop()
+        self.mock_controller.stop_instance.assert_called_once_with(inst)
+        self.assertEqual(inst.action_taken, 'stopped')

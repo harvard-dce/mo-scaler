@@ -4,6 +4,7 @@ import boto3
 import click
 import dotenv
 import unipath
+import logging
 import moscaler
 from click.exceptions import UsageError
 from moscaler import OpsworksController, utils
@@ -15,9 +16,10 @@ dotenv.load_dotenv(base_dir.child('.env'))
 @click.group()
 @click.option('-c','--cluster', help="opsworks cluster name")
 @click.option('-p','--profile', help="set/override default aws credentials profile")
+@click.option('-d','--debug', help="enable debug output")
 @click.version_option(moscaler.__version__)
 @click.pass_context
-def cli(ctx, cluster, profile):
+def cli(ctx, cluster, profile, debug):
 
     if cluster is None:
         cluster = env('MOSCALER_CLUSTER')
@@ -26,6 +28,8 @@ def cli(ctx, cluster, profile):
 
     if profile is not None:
         boto3.setup_default_session(profile_name=profile)
+
+    init_logging(debug)
 
     ctx.obj = OpsworksController(cluster)
 
@@ -66,5 +70,8 @@ def down(controller):
 def auto(controller):
     pass
 
+def init_logging(debug):
+
+    
 if __name__ == "__main__":
     cli()

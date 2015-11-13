@@ -64,6 +64,10 @@ class OpsworksController(object):
         return self.online_workers + self.pending_workers
 
     @property
+    def stopped_workers(self):
+        return [x for x in self.workers if x.is_stopped()]
+
+    @property
     def online_instances(self):
         return [x for x in self.instances if x.is_online()]
 
@@ -99,6 +103,14 @@ class OpsworksController(object):
             status['instances'].append(inst_status)
         return status
 
+    def start_instance(self, inst):
+        log.info("Starting %r", inst)
+        self.opsworks.start_instance(inst.InstanceId)
+
+    def stop_instance(self, inst):
+        log.info("Stopping %r", inst)
+        self.opsworks.stop_instance(inst.InstanceId)
+
     def scale_to(self, num_workers):
 
         current_workers = len(self.online_or_pending_workers)
@@ -115,7 +127,16 @@ class OpsworksController(object):
             self.scale_up(num_workers - current_workers)
 
     def scale_up(self, num_workers):
-        pass
+
+        # do we have enough non-running workers?
+        if len(self.stopped_workers) < num_workers:
+            raise OpsworksScalingException(
+                "Cluster does not have {} to start!".format(num_workers))
+
+        instances_to_start = self.stopped_workers[:num_workers]
+        log.info("Starting %d workers", len(instances_to_start))
+        for inst in instances_to_start:
+            inst.start()
 
     def scale_auto(self):
         raise NotImplementedError()
@@ -184,6 +205,7 @@ class OpsworksController(object):
             if not len(instances_to_stop):
                 raise OpsworksScalingException("No workers available to stop")
 
+        log.debug("Stopping %d workers", len(instances_to_stop))
         for inst in instances_to_stop:
             inst.stop()
 
@@ -192,6 +214,7 @@ class OpsworksInstance(object):
 
     def __init__(self, inst_dict, controller):
         self._inst = inst_dict
+        self.action_taken = None
         self.controller = controller
         self.ec2_inst = None
         if 'Ec2InstanceId' in inst_dict:
@@ -248,8 +271,8 @@ class OpsworksInstance(object):
             'rebooting'
         ]
 
-    def is_offline(self):
-        return not self.online() and not self.is_pending()
+    def is_stopped(self):
+        return self.Status == "stopped"
 
     def in_maintenance(self):
         return self.controller.mh.maintenance_state(self.PrivateDns)
@@ -258,7 +281,9 @@ class OpsworksInstance(object):
         self.controller.mh.set_maintenance_state(self.PrivateDns)
 
     def start(self):
-        self.controller.opsworks.start_instance(InstanceId=self.InstanceId)
+        self.controller.start_instance(self)
+        self.action_taken = 'started'
 
     def stop(self):
-        self.controller.opsworks.stop_instance(InstanceId=self.InstanceId)
+        self.controller.stop_instance(self)
+        self.action_taken = 'stopped'

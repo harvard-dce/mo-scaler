@@ -56,6 +56,14 @@ class OpsworksController(object):
         return [x for x in self.workers if x.is_online()]
 
     @property
+    def pending_workers(self):
+        return [x for x in self.workers if x.is_pending()]
+
+    @property
+    def online_or_pending_workers(self):
+        return self.online_workers + self.pending_workers
+
+    @property
     def online_instances(self):
         return [x for x in self.instances if x.is_online()]
 
@@ -74,6 +82,7 @@ class OpsworksController(object):
             "instances_online": len(self.online_instances),
             "workers": len(self.workers),
             "workers_online": len(self.online_workers),
+            "workers_pending": len(self.pending_workers),
             "instances": []
         }
 
@@ -92,17 +101,18 @@ class OpsworksController(object):
 
     def scale_to(self, num_workers):
 
-        running_workers = len(self.online_workers)
+        current_workers = len(self.online_or_pending_workers)
 
-        if running_workers == num_workers:
+        if current_workers == num_workers:
             raise OpsworksControllerException(
-                "Cluster already at %d running workers" % num_workers
+                "Cluster already at %d online or pending workers" \
+                % num_workers
             )
-        elif running_workers > num_workers:
+        elif current_workers > num_workers:
             with self.mh.in_maintenance(self.online_workers):
-                self.scale_down(running_workers - num_workers)
+                self.scale_down(current_workers - num_workers)
         else:
-            self.scale_up(num_workers - running_workers)
+            self.scale_up(num_workers - current_workers)
 
     def scale_up(self, num_workers):
         pass
@@ -110,15 +120,18 @@ class OpsworksController(object):
     def scale_auto(self):
         raise NotImplementedError()
 
-    def scale_down(self, num_workers, check_uptime=False, stop_candidates=None):
+    def scale_down(self, num_workers,
+                   check_uptime=False, stop_candidates=None):
 
+        current_workers = len(self.online_or_pending_workers)
         # do we have that many running workers?
-        if len(self.online_workers) - num_workers < 0:
+        if current_workers - num_workers < 0:
             raise OpsworksScalingException(
-                "Cluster does not have %d running workers to stop" % num_workers
+                "Cluster does not have %d online or pending workers to stop" \
+                % num_workers
             )
 
-        if len(self.online_workers) - num_workers < MIN_WORKERS:
+        if current_workers - num_workers < MIN_WORKERS:
             error_msg = "Stopping %d workers violates MIN_WORKERS setting of %d" \
                 % (num_workers, MIN_WORKERS)
             if self.force:
@@ -127,14 +140,16 @@ class OpsworksController(object):
                 raise OpsworksScalingException(error_msg)
 
         if stop_candidates is None:
-            stop_candidates = self.mh.filter_idle(self.online_workers)
+            stop_candidates = self.pending_workers
+            stop_candidates += self.mh.filter_idle(self.online_workers)
 
         if len(stop_candidates) < num_workers:
-            error_msg = "Cluster does not have %d idle workers" % num_workers
+            error_msg = "Cluster does not have %d idle or pending workers" \
+                        % num_workers
             if self.force:
                 log.warning(error_msg)
                 # just pick from running workers
-                stop_candidates = self.online_workers
+                stop_candidates = self.online_or_pending_workers
             else:
                 raise OpsworksScalingException(error_msg)
 
@@ -223,6 +238,18 @@ class OpsworksInstance(object):
 
     def is_online(self):
         return self.Status == 'online'
+
+    def is_pending(self):
+        return self.Status in [
+            'pending',
+            'requested',
+            'running_setup',
+            'booting',
+            'rebooting'
+        ]
+
+    def is_offline(self):
+        return not self.online() and not self.is_pending()
 
     def in_maintenance(self):
         return self.controller.mh.maintenance_state(self.PrivateDns)

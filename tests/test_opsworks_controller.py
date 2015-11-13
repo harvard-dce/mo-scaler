@@ -3,7 +3,7 @@ import unittest
 from mock import patch, MagicMock
 
 import boto3
-from moscaler.exceptions import OpsworksControllerException
+from moscaler.exceptions import *
 
 boto3.setup_default_session(region_name='us-east-1')
 
@@ -21,9 +21,11 @@ class TestOpsworksController(unittest.TestCase):
         }
         # must provide an 'admin' instance for mh controller creation
         mock_opsworks.describe_instances.return_value = {
-            'Instances': [
-                { 'Hostname': 'admin1', 'PublicDns': 'http://mh.example.edu' }
-            ]
+            'Instances': [{
+                'InstanceId': '1',
+                'Hostname': 'admin1',
+                'PublicDns': 'http://mh.example.edu'
+            }]
         }
         self.mock_boto3 = patch(
             'boto3.client',
@@ -84,6 +86,22 @@ class TestOpsworksController(unittest.TestCase):
             [x.InstanceId for x in self.controller.online_workers]
         )
 
+    def test_pending_workers(self):
+
+        self.controller._instances = self._create_instances(
+            {'InstanceId': 1, 'Hostname': 'storage1', 'Status': 'online'},
+            {'InstanceId': 2, 'Hostname': 'workers1', 'Status': 'booting'},
+            {'InstanceId': 3, 'Hostname': 'workers2', 'Status': 'online'},
+            {'InstanceId': 4, 'Hostname': 'workers3', 'Status': 'stopping'},
+            {'InstanceId': 5, 'Hostname': 'admin1', 'Status': 'online'},
+            {'InstanceId': 6, 'Hostname': 'engage1', 'Status': 'pending'},
+            {'InstanceId': 7, 'Hostname': 'workers4', 'Status': 'pending'},
+        )
+        self.assertEqual(
+            [2,7],
+            [x.InstanceId for x in self.controller.pending_workers]
+        )
+
     def test_admin(self):
 
         self.controller._instances = self._create_instances(
@@ -130,6 +148,56 @@ class TestOpsworksController(unittest.TestCase):
             4
         )
 
+    def test_scale_down_not_enough_workers(self):
+
+        self.controller._instances = self._create_instances(
+            {'Hostname': 'workers1', 'Status': 'online'},
+            {'Hostname': 'workers2', 'Status': 'online'},
+            {'Hostname': 'workers3', 'Status': 'running_setup'},
+        )
+
+        self.assertRaisesRegexp(
+            OpsworksScalingException,
+            "does not have 4 online or pending",
+            self.controller.scale_down, 4
+        )
+
+    @patch('moscaler.opsworks.MIN_WORKERS', 3)
+    def test_scale_down_min_workers(self):
+
+        self.controller._instances = self._create_instances(
+            {'Hostname': 'workers1', 'Status': 'online'},
+            {'Hostname': 'workers2', 'Status': 'online'},
+            {'Hostname': 'workers3', 'Status': 'online'},
+            {'Hostname': 'workers4', 'Status': 'online'},
+        )
+
+        self.assertRaisesRegexp(
+            OpsworksScalingException,
+            "Stopping 2 workers",
+            self.controller.scale_down, 2
+        )
+
+    def test_scale_down(self):
+
+        instances = self._create_instances(
+            {'InstanceId': '1', 'Hostname': 'workers1', 'Status': 'online'},
+            {'InstanceId': '2', 'Hostname': 'workers2', 'Status': 'online'},
+            {'InstanceId': '3', 'Hostname': 'workers3', 'Status': 'online'},
+            {'InstanceId': '4', 'Hostname': 'workers4', 'Status': 'online'},
+        )
+        wrapped = []
+        for inst in instances:
+            inst = MagicMock(wraps=inst)
+            inst.stop.return_value = 1
+            wrapped.append(inst)
+        self.controller._instances = wrapped
+        self.controller.mh.filter_idle.return_value =wrapped
+        self.controller.scale_down(2, check_uptime=False)
+        self.assertEqual(
+            [1,1,0,0],
+            [x.stop.call_count for x in wrapped]
+        )
 
 
 

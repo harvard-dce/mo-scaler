@@ -8,9 +8,11 @@ import logging
 from requests.exceptions import Timeout as RequestsTimeout
 from contextlib import contextmanager
 from os import getenv as env
-from exceptions import *
+from moscaler.exceptions import \
+    MatterhornCommunicationException, \
+    MatterhornNodeException
 
-log = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 PYHORN_TIMEOUT = 30
 URI_SCHEME = 'http'
@@ -33,8 +35,8 @@ class MatterhornController(object):
             self.verify_connection()
             self.refresh_hosts()
             self._online = True
-        except MatterhornCommunicationException, e:
-            log.warning("Matterhorn connection failure: %s", str(e))
+        except MatterhornCommunicationException as exc:
+            LOGGER.warning("Matterhorn connection failure: %s", str(exc))
             self._online = False
 
     def __repr__(self):
@@ -42,14 +44,13 @@ class MatterhornController(object):
 
     def verify_connection(self):
         try:
-            log.debug("verifying pyhorn client connection")
+            LOGGER.debug("verifying pyhorn client connection")
             with stopit.SignalTimeout(5, swallow_exc=False):
                 assert self.client.me() is not None
-        except (RequestsTimeout, stopit.TimeoutException), e:
-            # this could be anything: communication problem, unexpected response, etc
+        except (RequestsTimeout, stopit.TimeoutException) as exc:
             raise MatterhornCommunicationException(
                 "Error connecting to Matterhorn API at {}: {}".format(
-                    self.mh_url, str(e)
+                    self.mh_url, str(exc)
                 )
             )
 
@@ -84,20 +85,22 @@ class MatterhornController(object):
 
         # then get their running operations
         running_ops = []
-        for wf in running_wfs:
-            running_ops.extend(filter(
-                lambda x: x.state in ["RUNNING","WAITING"],
-                wf.operations
-            ))
+        for wkf in running_wfs:
+            running_ops.extend(
+                [x for x in wkf.operations
+                 if x.state in ['RUNNING', 'WAITING']]
+            )
 
         # filter for the operation types we're interested in
         if operation_types is not None:
-            running_ops = filter(lambda x: x.id in operation_types, running_ops)
+            running_ops = [x for x in running_ops if x.id in operation_types]
 
         # now get any queued child jobs of those operations
         queued_jobs = []
-        for op in running_ops:
-            queued_jobs.extend(filter(lambda x: x.status == "QUEUED", op.job.children))
+        for opr in running_ops:
+            queued_jobs.extend(
+                [x for x in opr.job.children if x.status == 'QUEUED']
+            )
 
         return len(queued_jobs)
 
@@ -113,10 +116,12 @@ class MatterhornController(object):
 
     def filter_idle(self, instances):
         stats = self.client.statistics()
+
         def is_idle(inst):
             running_jobs = stats.running_jobs('http://' + inst.PrivateDns)
-            log.debug("%r has %d running jobs", inst, running_jobs)
+            LOGGER.debug("%r has %d running jobs", inst, running_jobs)
             return running_jobs == 0
+
         return [x for x in instances if is_idle(x)]
 
     def is_in_maintenance(self, inst):
@@ -125,12 +130,12 @@ class MatterhornController(object):
 
     def maintenance_off(self, inst):
         host = self.get_host_by_url(inst.PrivateDns)
-        log.debug("Setting maintenance to off for %r", inst)
+        LOGGER.debug("Setting maintenance to off for %r", inst)
         host.set_maintenance(False)
 
     def maintenance_on(self, inst):
         host = self.get_host_by_url(inst.PrivateDns)
-        log.debug("Setting maintenance to on for %r", inst)
+        LOGGER.debug("Setting maintenance to on for %r", inst)
         host.set_maintenance(True)
 
     @contextmanager
@@ -138,11 +143,14 @@ class MatterhornController(object):
         """Context manager for ensuring matterhorn nodes are in maintenance
         state while performing operations"""
 
-        log.debug("Ensuring instances in maintenance: %s",
-                  ', '.join(repr(x) for x in instances))
+        LOGGER.debug(
+            "Ensuring instances in maintenance: %s",
+            ', '.join(repr(x) for x in instances)
+        )
 
-        # make sure we're only dealing with nodes that are not already in maintenance
-        for_maintenance = [x for x in instances if not self.is_in_maintenance(x)]
+        # only deal with nodes that are not already in maintenance
+        for_maintenance = [x for x in instances
+                           if not self.is_in_maintenance(x)]
 
         if not len(for_maintenance):
             # don't do anything
@@ -151,18 +159,26 @@ class MatterhornController(object):
             try:
                 for inst in for_maintenance:
                     self.maintenance_on(inst)
-                    log.debug("Maintenace mode set for %r" % inst)
+                    LOGGER.debug("Maintenace mode set for %r", inst)
                 self.refresh_hosts()
-                yield # let calling code do it's thing
-            except Exception, e:
-                log.debug("Exception caught during 'in_maintenance' context: %s, %s", type(e), str(e))
+                yield  # let calling code do it's thing
+            except Exception as exc:
+                LOGGER.debug(
+                    "Exception caught during 'in_maintenance' context: %s, %s",
+                    type(exc),
+                    str(exc)
+                )
                 raise
             finally:
-                if restore_state:
-                    for inst in for_maintenance:
-                        if inst.action_taken == 'stopped':
-                            log.debug("not unsetting maintenance for %r as it was stopped", inst)
-                        else:
-                            self.maintenance_off(inst)
-                            log.debug("Maintenance mode unset for %r" % inst)
-                    self.refresh_hosts()
+                if not restore_state:
+                    return
+                for inst in for_maintenance:
+                    if inst.action_taken == 'stopped':
+                        LOGGER.debug(
+                            "Not unsetting maintenance for stopped inst: %r",
+                            inst
+                        )
+                    else:
+                        self.maintenance_off(inst)
+                        LOGGER.debug("Maintenance mode unset for %r", inst)
+                self.refresh_hosts()

@@ -5,10 +5,12 @@ import boto3
 import logging
 from os import getenv as env
 from operator import methodcaller
-from exceptions import *
-from matterhorn import MatterhornController
+from moscaler.matterhorn import MatterhornController
+from moscaler.exceptions import \
+    OpsworksControllerException, \
+    OpsworksScalingException
 
-log = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 MIN_WORKERS = env('MOSCALER_MIN_WORKERS', 1)
 IDLE_UPTIME_THRESHOLD = env('MOSCALER_IDLE_UPTIME_THRESHOLD', 50)
@@ -39,7 +41,7 @@ class OpsworksController(object):
         except StopIteration:
             raise OpsworksControllerException("No admin node found")
 
-        self.mh = MatterhornController(mh_admin['PublicDns'])
+        self.mhorn = MatterhornController(mh_admin['PublicDns'])
         self._instances = [OpsworksInstance(x, self) for x in instances]
 
     def __repr__(self):
@@ -83,16 +85,16 @@ class OpsworksController(object):
     def status(self):
         status = {
             "cluster": self.stack['Name'],
-            "matterhorn_online": self.mh.is_online(),
+            "matterhorn_online": self.mhorn.is_online(),
             "instances": len(self.instances),
             "instances_online": len(self.online_instances),
             "workers": len(self.workers),
             "workers_online": len(self.online_workers),
             "workers_pending": len(self.pending_workers),
-            "instances": []
+            "instance_details": []
         }
 
-        status['job_status'] = self.mh.job_status()
+        status['job_status'] = self.mhorn.job_status()
 
         for inst in self.instances:
             inst_status = {
@@ -102,16 +104,16 @@ class OpsworksController(object):
             }
             if hasattr(inst, 'Ec2InstanceId'):
                 inst_status['ec2_id'] = inst.Ec2InstanceId
-            status['instances'].append(inst_status)
-        log.debug("Cluster status: %s" % json.dumps(status))
+            status['instance_details'].append(inst_status)
+        LOGGER.debug("Cluster status: %s", json.dumps(status))
         return status
 
     def start_instance(self, inst):
-        log.info("Starting %r", inst)
+        LOGGER.info("Starting %r", inst)
         self.opsworks.start_instance(InstanceId=inst.InstanceId)
 
     def stop_instance(self, inst):
-        log.info("Stopping %r", inst)
+        LOGGER.info("Stopping %r", inst)
         self.opsworks.stop_instance(InstanceId=inst.InstanceId)
 
     def scale_to(self, num_workers):
@@ -120,11 +122,11 @@ class OpsworksController(object):
 
         if current_workers == num_workers:
             raise OpsworksControllerException(
-                "Cluster already at %d online or pending workers" \
+                "Cluster already at %d online or pending workers"
                 % num_workers
             )
         elif current_workers > num_workers:
-            with self.mh.in_maintenance(self.online_workers):
+            with self.mhorn.in_maintenance(self.online_workers):
                 self.scale_down(current_workers - num_workers)
         else:
             self.scale_up(num_workers - current_workers)
@@ -137,7 +139,7 @@ class OpsworksController(object):
                 "Cluster does not have {} to start!".format(num_workers))
 
         instances_to_start = self.stopped_workers[:num_workers]
-        log.info("Starting %d workers", len(instances_to_start))
+        LOGGER.info("Starting %d workers", len(instances_to_start))
         for inst in instances_to_start:
             inst.start()
 
@@ -151,27 +153,27 @@ class OpsworksController(object):
         # do we have that many running workers?
         if current_workers - num_workers < 0:
             raise OpsworksScalingException(
-                "Cluster does not have %d online or pending workers to stop" \
+                "Cluster does not have %d online or pending workers to stop"
                 % num_workers
             )
 
         if current_workers - num_workers < MIN_WORKERS:
-            error_msg = "Stopping %d workers violates MIN_WORKERS setting of %d" \
+            error_msg = "Stopping %d workers violates MIN_WORKERS %d" \
                 % (num_workers, MIN_WORKERS)
             if self.force:
-                log.warning(error_msg)
+                LOGGER.warning(error_msg)
             else:
                 raise OpsworksScalingException(error_msg)
 
         if stop_candidates is None:
             stop_candidates = self.pending_workers
-            stop_candidates += self.mh.filter_idle(self.online_workers)
+            stop_candidates += self.mhorn.filter_idle(self.online_workers)
 
         if len(stop_candidates) < num_workers:
             error_msg = "Cluster does not have %d idle or pending workers" \
                         % num_workers
             if self.force:
-                log.warning(error_msg)
+                LOGGER.warning(error_msg)
                 # just pick from running workers
                 stop_candidates = self.online_or_pending_workers
             else:
@@ -185,32 +187,44 @@ class OpsworksController(object):
             key=methodcaller('uptime'),
             reverse=True)
 
-        if not check_uptime:
-            instances_to_stop = stop_candidates[:num_workers]
-        else:
-            # only stop idle workers if they're approaching an uptime near to being
-            # divisible by 60m since we're paying for the full hour anyway
-            instances_to_stop = []
-            for inst in stop_candidates:
-                minutes = inst.billed_minutes()
-                log.debug("Instance %s has used %d minutes of it's billing hour",
-                          inst.InstanceId, minutes)
-                if minutes < IDLE_UPTIME_THRESHOLD:
-                    if self.force:
-                        log.warning("Stopping %s anyway because --force", inst.InstanceId)
-                    else:
-                        log.debug("Not stopping %s", inst.InstanceId)
-                        continue
-                instances_to_stop.append(inst)
-                if len(instances_to_stop) == num_workers:
-                    break
+        if check_uptime:
+            stop_candidates = self.filter_by_billing_hour(stop_candidates)
 
-            if not len(instances_to_stop):
-                raise OpsworksScalingException("No workers available to stop")
+        instances_to_stop = stop_candidates[:num_workers]
 
-        log.debug("Stopping %d workers", len(instances_to_stop))
+        if not len(instances_to_stop):
+            raise OpsworksScalingException("No workers available to stop")
+
+        LOGGER.debug("Stopping %d workers", len(instances_to_stop))
         for inst in instances_to_stop:
             inst.stop()
+
+    def filter_by_billing_hour(self, instances, uptime_threshold=None):
+        """
+        only stop idle workers if approaching uptime near to being
+        divisible by 60m since we're paying for the full hour anyway
+        """
+
+        if uptime_threshold is None:
+            uptime_threshold = IDLE_UPTIME_THRESHOLD
+
+        filtered_instances = []
+        for inst in instances:
+            minutes = inst.billed_minutes()
+            LOGGER.debug(
+                "Instance %s has used %d minutes of it's billing hour",
+                inst.InstanceId,
+                minutes
+            )
+            if minutes < uptime_threshold:
+                if self.force:
+                    LOGGER.warning("Including %r because --force",
+                                   inst)
+                else:
+                    LOGGER.debug("Not including %r", inst)
+                    continue
+            filtered_instances.append(inst)
+        return filtered_instances
 
 
 class OpsworksInstance(object):
@@ -234,7 +248,7 @@ class OpsworksInstance(object):
     def __getattr__(self, k):
         try:
             return self._inst[k]
-        except KeyError, e:
+        except KeyError:
             raise AttributeError(k)
 
     @property
@@ -278,10 +292,10 @@ class OpsworksInstance(object):
         return self.Status == "stopped"
 
     def in_maintenance(self):
-        return self.controller.mh.maintenance_state(self.PrivateDns)
+        return self.controller.mhorn.maintenance_state(self.PrivateDns)
 
     def set_maintenance(self):
-        self.controller.mh.set_maintenance_state(self.PrivateDns)
+        self.controller.mhorn.set_maintenance_state(self.PrivateDns)
 
     def start(self):
         self.controller.start_instance(self)

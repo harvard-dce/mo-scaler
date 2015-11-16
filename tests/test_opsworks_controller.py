@@ -9,7 +9,7 @@ from moscaler.exceptions import *
 
 boto3.setup_default_session(region_name='us-east-1')
 
-from moscaler import OpsworksController, OpsworksInstance
+from moscaler.opsworks import OpsworksController, OpsworksInstance
 
 class TestOpsworksController(unittest.TestCase):
 
@@ -192,7 +192,7 @@ class TestOpsworksController(unittest.TestCase):
             {'InstanceId': '4', 'Hostname': 'workers4', 'Status': 'online'},
             wrap=True
         )
-        self.controller.mh.filter_idle.return_value = self.controller._instances
+        self.controller.mhorn.filter_idle.return_value = self.controller._instances
         self.controller.scale_down(2, check_uptime=False)
         self.assertEqual(
             [1,1,0,0],
@@ -215,7 +215,7 @@ class TestOpsworksController(unittest.TestCase):
         instances[3]._mock_wraps.ec2_inst = None
 
         self.controller._instances = instances
-        self.controller.mh.filter_idle.return_value = self.controller._instances
+        self.controller.mhorn.filter_idle.return_value = self.controller._instances
 
         with freeze_time("2015-11-13 11:00:00"):
             self.controller.scale_down(2, check_uptime=True)
@@ -224,11 +224,14 @@ class TestOpsworksController(unittest.TestCase):
             [x.stop.call_count for x in self.controller._instances]
         )
 
+        for mock_inst in instances:
+            mock_inst.reset_mock()
+
         with patch('moscaler.opsworks.IDLE_UPTIME_THRESHOLD', 30):
             with freeze_time("2015-11-13 12:00:00"):
                 self.controller.scale_down(2, check_uptime=True)
         self.assertEqual(
-            [0,1,2,0],
+            [0,1,1,0],
             [x.stop.call_count for x in self.controller._instances]
         )
 

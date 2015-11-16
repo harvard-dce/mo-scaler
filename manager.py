@@ -3,12 +3,12 @@
 import boto3
 import click
 import dotenv
-import sys
 import unipath
 import logging
 import moscaler
 from click.exceptions import UsageError
-from moscaler import OpsworksController, utils
+from moscaler.opsworks import OpsworksController
+from moscaler import utils
 from os import getenv as env
 
 base_dir = unipath.Path(__file__).absolute().parent
@@ -16,10 +16,11 @@ dotenv.load_dotenv(base_dir.child('.env'))
 
 log = logging.getLogger('moscaler')
 
+
 @click.group()
-@click.option('-c','--cluster', help="opsworks cluster name")
-@click.option('-p','--profile', help="set/override default aws credentials profile")
-@click.option('-d','--debug', help="enable debug output", is_flag=True)
+@click.option('-c', '--cluster', help="opsworks cluster name")
+@click.option('-p', '--profile', help="set/override default aws profile")
+@click.option('-d', '--debug', help="enable debug output", is_flag=True)
 @click.version_option(moscaler.__version__)
 @click.pass_context
 def cli(ctx, cluster, profile, debug):
@@ -44,12 +45,14 @@ def status(controller):
     status = controller.status()
     utils.print_status(status)
 
+
 @cli.group()
 @click.option('-f', '--force', is_flag=True)
 @click.pass_obj
 def scale(controller, force):
     if force:
         controller.force = True
+
 
 @scale.command()
 @click.argument('num_workers', type=int)
@@ -58,12 +61,14 @@ def to(controller, num_workers):
 
     controller.scale_to(num_workers)
 
+
 @scale.command()
 @click.argument('num_workers', type=int, default=1)
 @click.pass_obj
 def up(controller, num_workers):
 
     controller.scale_up(num_workers)
+
 
 @scale.command()
 @click.argument('num_workers', type=int, default=1)
@@ -72,10 +77,12 @@ def down(controller, num_workers):
 
     controller.scale_down(num_workers)
 
+
 @scale.command()
 @click.pass_obj
 def auto(controller):
     pass
+
 
 def init_logging(debug):
     import logging.config
@@ -84,7 +91,7 @@ def init_logging(debug):
         'version': 1,
         'loggers': {
             'moscaler': {
-                'handlers': ['stdout','stderr'],
+                'handlers': ['stdout', 'stderr'],
                 'level': level
             }
         },
@@ -104,10 +111,10 @@ def init_logging(debug):
         },
         'formatters': {
             'basic': {
-                'format':"%(asctime)s %(levelname)s %(module)s:%(funcName)s %(message)s"
+                'format': ("%(asctime)s %(levelname)s "
+                           "%(module)s:%(funcName)s %(message)s")
             }
         }
-
     }
 
     if env('LOGGLY_TOKEN'):
@@ -121,6 +128,7 @@ def init_logging(debug):
         }
 
     logging.config.dictConfig(config)
+
 
 if __name__ == "__main__":
     cli()

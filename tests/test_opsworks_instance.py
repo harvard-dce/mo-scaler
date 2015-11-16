@@ -4,7 +4,7 @@ from datetime import datetime
 from mock import patch, MagicMock, PropertyMock
 from freezegun import freeze_time
 
-from moscaler import OpsworksInstance, OpsworksController
+from moscaler.opsworks import OpsworksInstance, OpsworksController
 
 
 class TestOpsworksInstance(unittest.TestCase):

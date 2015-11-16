@@ -1,29 +1,51 @@
 #!/usr/bin/env python
 
+import sys
 import boto3
 import click
 import dotenv
 import unipath
 import logging
-import moscaler
-from click.exceptions import UsageError
-from moscaler.opsworks import OpsworksController
-from moscaler import utils
+from functools import wraps
 from os import getenv as env
+from click.exceptions import UsageError
+
+import moscaler
+from moscaler.opsworks import OpsworksController
+from moscaler.exceptions import OpsworksControllerException
+from moscaler import utils
 
 base_dir = unipath.Path(__file__).absolute().parent
 dotenv.load_dotenv(base_dir.child('.env'))
 
-log = logging.getLogger('moscaler')
+LOGGER = logging.getLogger('moscaler')
+
+
+def handle_exit(cmd):
+    """
+    execute the command and catch any cluster exceptions. The return value
+    will be used as the arg for sys.exit().
+    """
+    @wraps(cmd)
+    def exit_wrapper(cluster, *args, **kwargs):
+        try:
+            cmd(cluster, *args, **kwargs)
+            return 0
+        except OpsworksControllerException as exc:
+            LOGGER.info(str(exc))
+            return str(exc)
+    return exit_wrapper
 
 
 @click.group()
 @click.option('-c', '--cluster', help="opsworks cluster name")
 @click.option('-p', '--profile', help="set/override default aws profile")
 @click.option('-d', '--debug', help="enable debug output", is_flag=True)
+@click.option('-f', '--force', is_flag=True)
+@click.option('-n', '--dry-run', is_flag=True)
 @click.version_option(moscaler.__version__)
 @click.pass_context
-def cli(ctx, cluster, profile, debug):
+def cli(ctx, cluster, profile, debug, force, dry_run):
 
     if cluster is None:
         cluster = env('MOSCALER_CLUSTER')
@@ -35,11 +57,23 @@ def cli(ctx, cluster, profile, debug):
 
     init_logging(debug)
 
-    ctx.obj = OpsworksController(cluster)
+    if force:
+        LOGGER.warn("--force mode enabled")
+    if dry_run:
+        LOGGER.warn("--dry-run mode enabled")
+
+    ctx.obj = OpsworksController(cluster, force, dry_run)
+
+
+@cli.resultcallback()
+def exit_with_code(result, *args, **kwargs):
+    exit_code = result
+    sys.exit(exit_code)
 
 
 @cli.command()
 @click.pass_obj
+@handle_exit
 def status(controller):
 
     status = controller.status()
@@ -47,16 +81,13 @@ def status(controller):
 
 
 @cli.group()
-@click.option('-f', '--force', is_flag=True)
-@click.pass_obj
-def scale(controller, force):
-    if force:
-        controller.force = True
-
+def scale():
+    pass
 
 @scale.command()
 @click.argument('num_workers', type=int)
 @click.pass_obj
+@handle_exit
 def to(controller, num_workers):
 
     controller.scale_to(num_workers)
@@ -65,24 +96,27 @@ def to(controller, num_workers):
 @scale.command()
 @click.argument('num_workers', type=int, default=1)
 @click.pass_obj
+@handle_exit
 def up(controller, num_workers):
 
-    controller.scale_up(num_workers)
+    controller.scale('up', num_workers)
 
 
 @scale.command()
 @click.argument('num_workers', type=int, default=1)
 @click.pass_obj
+@handle_exit
 def down(controller, num_workers):
 
-    controller.scale_down(num_workers)
+    controller.scale('down', num_workers)
 
 
 @scale.command()
 @click.pass_obj
+@handle_exit
 def auto(controller):
-    pass
 
+    controller.scale('auto')
 
 def init_logging(debug):
     import logging.config

@@ -139,14 +139,11 @@ class MatterhornController(object):
         host.set_maintenance(True)
 
     @contextmanager
-    def in_maintenance(self, instances, restore_state=True):
+    def in_maintenance(self, instances, restore_state=True, dry_run=False):
         """Context manager for ensuring matterhorn nodes are in maintenance
         state while performing operations"""
 
-        LOGGER.debug(
-            "Ensuring instances in maintenance: %s",
-            ', '.join(repr(x) for x in instances)
-        )
+        LOGGER.debug("Ensuring workers in maintenance")
 
         # only deal with nodes that are not already in maintenance
         for_maintenance = [x for x in instances
@@ -158,8 +155,9 @@ class MatterhornController(object):
         else:
             try:
                 for inst in for_maintenance:
-                    self.maintenance_on(inst)
-                    LOGGER.debug("Maintenace mode set for %r", inst)
+                    LOGGER.debug("Enabling maintenance mode for %r", inst)
+                    if not dry_run:
+                        self.maintenance_on(inst)
                 self.refresh_hosts()
                 yield  # let calling code do it's thing
             except Exception as exc:
@@ -170,15 +168,16 @@ class MatterhornController(object):
                 )
                 raise
             finally:
-                if not restore_state:
-                    return
-                for inst in for_maintenance:
-                    if inst.action_taken == 'stopped':
-                        LOGGER.debug(
-                            "Not unsetting maintenance for stopped inst: %r",
-                            inst
-                        )
-                    else:
-                        self.maintenance_off(inst)
-                        LOGGER.debug("Maintenance mode unset for %r", inst)
-                self.refresh_hosts()
+                if restore_state:
+                    LOGGER.debug("Restoring maintenance state")
+                    for inst in for_maintenance:
+                        if inst.action_taken == 'stopped':
+                            LOGGER.debug(
+                                "Not unsetting maintenance for stopped: %r",
+                                inst
+                            )
+                        else:
+                            LOGGER.debug("Disabling maintenance for %r", inst)
+                            if not dry_run:
+                                self.maintenance_off(inst)
+                    self.refresh_hosts()

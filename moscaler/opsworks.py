@@ -4,7 +4,7 @@ import arrow
 import boto3
 import logging
 from os import getenv as env
-from operator import methodcaller
+from operator import methodcaller, attrgetter
 from moscaler.matterhorn import MatterhornController
 from moscaler.exceptions import \
     OpsworksControllerException, \
@@ -18,9 +18,10 @@ IDLE_UPTIME_THRESHOLD = env('MOSCALER_IDLE_UPTIME_THRESHOLD', 50)
 
 class OpsworksController(object):
 
-    def __init__(self, cluster, force=False):
+    def __init__(self, cluster, force=False, dry_run=False):
 
         self.force = force
+        self.dry_run = dry_run
 
         self.opsworks = boto3.client('opsworks')
         self.ec2 = boto3.resource('ec2')
@@ -110,11 +111,13 @@ class OpsworksController(object):
 
     def start_instance(self, inst):
         LOGGER.info("Starting %r", inst)
-        self.opsworks.start_instance(InstanceId=inst.InstanceId)
+        if not self.dry_run:
+            self.opsworks.start_instance(InstanceId=inst.InstanceId)
 
     def stop_instance(self, inst):
         LOGGER.info("Stopping %r", inst)
-        self.opsworks.stop_instance(InstanceId=inst.InstanceId)
+        if not self.dry_run:
+            self.opsworks.stop_instance(InstanceId=inst.InstanceId)
 
     def scale_to(self, num_workers):
 
@@ -122,43 +125,66 @@ class OpsworksController(object):
 
         if current_workers == num_workers:
             raise OpsworksControllerException(
-                "Cluster already at %d online or pending workers"
+                "Cluster already at %d online or pending workers!"
                 % num_workers
             )
         elif current_workers > num_workers:
-            with self.mhorn.in_maintenance(self.online_workers):
-                self.scale_down(current_workers - num_workers)
+            self.scale('down', current_workers - num_workers)
         else:
-            self.scale_up(num_workers - current_workers)
+            self.scale('up', num_workers - current_workers)
 
-    def scale_up(self, num_workers):
+    def scale(self, direction, num_workers=None):
+
+        if direction == "up":
+            LOGGER.info("Attempting to scale up %d workers", num_workers)
+            self._scale_up(num_workers)
+        else:
+            with self.mhorn.in_maintenance(self.online_workers,
+                                           dry_run=self.dry_run):
+                if direction == "down":
+                    LOGGER.info("Attempting to scale down %d workers",
+                                num_workers)
+                    self._scale_down(num_workers)
+                elif direction == "auto":
+                    LOGGER.info("Initiating auto-scaling")
+                    self._scale_auto()
+
+    def _scale_auto(self):
+        raise NotImplementedError()
+
+    def _scale_up(self, num_workers):
 
         # do we have enough non-running workers?
         if len(self.stopped_workers) < num_workers:
             raise OpsworksScalingException(
                 "Cluster does not have {} to start!".format(num_workers))
 
-        instances_to_start = self.stopped_workers[:num_workers]
+        # prefer instances that already have an associated ec2 instance
+        start_candidates = sorted(
+            self.stopped_workers,
+            key=attrgetter('ec2_inst'),
+            reverse=True
+        )
+
+        instances_to_start = start_candidates[:num_workers]
         LOGGER.info("Starting %d workers", len(instances_to_start))
         for inst in instances_to_start:
             inst.start()
 
-    def scale_auto(self):
-        raise NotImplementedError()
-
-    def scale_down(self, num_workers,
-                   check_uptime=False, stop_candidates=None):
+    def _scale_down(self, num_workers,
+                    check_uptime=False, stop_candidates=None):
 
         current_workers = len(self.online_or_pending_workers)
+
         # do we have that many running workers?
         if current_workers - num_workers < 0:
             raise OpsworksScalingException(
-                "Cluster does not have %d online or pending workers to stop"
+                "Cluster does not have %d online or pending workers to stop!"
                 % num_workers
             )
 
         if current_workers - num_workers < MIN_WORKERS:
-            error_msg = "Stopping %d workers violates MIN_WORKERS %d" \
+            error_msg = "Stopping %d workers violates MIN_WORKERS %d!" \
                 % (num_workers, MIN_WORKERS)
             if self.force:
                 LOGGER.warning(error_msg)
@@ -170,7 +196,7 @@ class OpsworksController(object):
             stop_candidates += self.mhorn.filter_idle(self.online_workers)
 
         if len(stop_candidates) < num_workers:
-            error_msg = "Cluster does not have %d idle or pending workers" \
+            error_msg = "Cluster does not have %d idle or pending workers!" \
                         % num_workers
             if self.force:
                 LOGGER.warning(error_msg)
@@ -193,9 +219,9 @@ class OpsworksController(object):
         instances_to_stop = stop_candidates[:num_workers]
 
         if not len(instances_to_stop):
-            raise OpsworksScalingException("No workers available to stop")
+            raise OpsworksScalingException("No workers available to stop!")
 
-        LOGGER.debug("Stopping %d workers", len(instances_to_stop))
+        LOGGER.info("Stopping %d workers", len(instances_to_stop))
         for inst in instances_to_stop:
             inst.stop()
 
@@ -290,12 +316,6 @@ class OpsworksInstance(object):
 
     def is_stopped(self):
         return self.Status == "stopped"
-
-    def in_maintenance(self):
-        return self.controller.mhorn.maintenance_state(self.PrivateDns)
-
-    def set_maintenance(self):
-        self.controller.mhorn.set_maintenance_state(self.PrivateDns)
 
     def start(self):
         self.controller.start_instance(self)

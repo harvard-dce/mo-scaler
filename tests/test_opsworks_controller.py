@@ -139,11 +139,11 @@ class TestOpsworksController(unittest.TestCase):
             {'Hostname': 'workers4', 'Status': 'online'}
         )
 
-        with patch.object(self.controller, 'scale_up', autospec=True) as scale_up:
+        with patch.object(self.controller, '_scale_up', autospec=True) as scale_up:
             self.controller.scale_to(9)
             scale_up.assert_called_once_with(5)
 
-        with patch.object(self.controller, 'scale_down', autospec=True) as scale_down:
+        with patch.object(self.controller, '_scale_down', autospec=True) as scale_down:
             self.controller.scale_to(2)
             scale_down.assert_called_once_with(2)
 
@@ -164,7 +164,7 @@ class TestOpsworksController(unittest.TestCase):
         self.assertRaisesRegexp(
             OpsworksScalingException,
             "does not have 4 online or pending",
-            self.controller.scale_down, 4
+            self.controller._scale_down, 4
         )
 
     @patch('moscaler.opsworks.MIN_WORKERS', 3)
@@ -180,7 +180,7 @@ class TestOpsworksController(unittest.TestCase):
         self.assertRaisesRegexp(
             OpsworksScalingException,
             "Stopping 2 workers",
-            self.controller.scale_down, 2
+            self.controller._scale_down, 2
         )
 
     def test_scale_down(self):
@@ -193,7 +193,7 @@ class TestOpsworksController(unittest.TestCase):
             wrap=True
         )
         self.controller.mhorn.filter_idle.return_value = self.controller._instances
-        self.controller.scale_down(2, check_uptime=False)
+        self.controller._scale_down(2, check_uptime=False)
         self.assertEqual(
             [1,1,0,0],
             [x.stop.call_count for x in self.controller._instances]
@@ -218,7 +218,7 @@ class TestOpsworksController(unittest.TestCase):
         self.controller.mhorn.filter_idle.return_value = self.controller._instances
 
         with freeze_time("2015-11-13 11:00:00"):
-            self.controller.scale_down(2, check_uptime=True)
+            self.controller._scale_down(2, check_uptime=True)
         self.assertEqual(
             [0,0,1,0],
             [x.stop.call_count for x in self.controller._instances]
@@ -229,7 +229,7 @@ class TestOpsworksController(unittest.TestCase):
 
         with patch('moscaler.opsworks.IDLE_UPTIME_THRESHOLD', 30):
             with freeze_time("2015-11-13 12:00:00"):
-                self.controller.scale_down(2, check_uptime=True)
+                self.controller._scale_down(2, check_uptime=True)
         self.assertEqual(
             [0,1,1,0],
             [x.stop.call_count for x in self.controller._instances]
@@ -240,7 +240,7 @@ class TestOpsworksController(unittest.TestCase):
                 self.assertRaisesRegexp(
                     OpsworksScalingException,
                     "No workers available to stop",
-                    self.controller.scale_down,
+                    self.controller._scale_down,
                     2,
                     check_uptime=True
                 )
@@ -256,7 +256,7 @@ class TestOpsworksController(unittest.TestCase):
             {'InstanceId': '5', 'Hostname': 'workers5', 'Status': 'stopped'},
             wrap=True
         )
-        self.controller.scale_up(2)
+        self.controller._scale_up(2)
         self.assertEqual(
             [0,0,1,0,1],
             [x.start.call_count for x in self.controller._instances]
@@ -274,6 +274,6 @@ class TestOpsworksController(unittest.TestCase):
         self.assertRaisesRegexp(
             OpsworksScalingException,
             "Cluster does not have 3",
-            self.controller.scale_up,
+            self.controller._scale_up,
             3
         )

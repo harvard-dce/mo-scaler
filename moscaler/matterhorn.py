@@ -3,9 +3,13 @@ import pyhorn
 # this is a hack until pyhorn can get it's caching controls sorted out
 pyhorn.client._session._is_cache_disabled = True
 
-import stopit
 import logging
-from requests.exceptions import Timeout as RequestsTimeout
+from stopit import SignalTimeout, \
+    TimeoutException as StopitTimeout
+from requests.exceptions import \
+    Timeout as RequestsTimeout, \
+    ConnectionError
+
 from contextlib import contextmanager
 from os import getenv as env
 from moscaler.exceptions import MatterhornCommunicationException
@@ -43,9 +47,9 @@ class MatterhornController(object):
     def verify_connection(self):
         try:
             LOGGER.debug("verifying pyhorn client connection")
-            with stopit.SignalTimeout(5, swallow_exc=False):
+            with SignalTimeout(5, swallow_exc=False):
                 assert self.client.me() is not None
-        except (RequestsTimeout, stopit.TimeoutException) as exc:
+        except (ConnectionError, RequestsTimeout, StopitTimeout) as exc:
             raise MatterhornCommunicationException(
                 "Error connecting to Matterhorn API at {}: {}".format(
                     self.mh_url, str(exc)

@@ -103,6 +103,8 @@ class OpsworksController(object):
                 "opsworks_id": inst.InstanceId,
                 "hostname": inst.Hostname
             }
+            if inst in self.workers:
+                inst_status.update(self.mhorn.node_status(inst))
             if hasattr(inst, 'Ec2InstanceId'):
                 inst_status['ec2_id'] = inst.Ec2InstanceId
             status['instance_details'].append(inst_status)
@@ -193,7 +195,8 @@ class OpsworksController(object):
 
         if stop_candidates is None:
             stop_candidates = self.pending_workers
-            stop_candidates += self.mhorn.filter_idle(self.online_workers)
+            stop_candidates += [x for x in self.online_workers
+                                if self.mhorn.is_idle(x)]
 
         if len(stop_candidates) < num_workers:
             error_msg = "Cluster does not have %d idle or pending workers!" \
@@ -282,6 +285,10 @@ class OpsworksInstance(object):
         if 'Ec2InstanceId' in self._inst:
             return self._inst['Ec2InstanceId']
         return None
+
+    @property
+    def mh_host_url(self):
+        return 'http://' + self.PrivateDns
 
     def uptime(self):
         if self.ec2_inst is None:

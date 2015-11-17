@@ -192,7 +192,6 @@ class TestOpsworksController(unittest.TestCase):
             {'InstanceId': '4', 'Hostname': 'workers4', 'Status': 'online'},
             wrap=True
         )
-        self.controller.mhorn.filter_idle.return_value = self.controller._instances
         self.controller._scale_down(2, check_uptime=False)
         self.assertEqual(
             [1,1,0,0],
@@ -215,8 +214,6 @@ class TestOpsworksController(unittest.TestCase):
         instances[3]._mock_wraps.ec2_inst = None
 
         self.controller._instances = instances
-        self.controller.mhorn.filter_idle.return_value = self.controller._instances
-
         with freeze_time("2015-11-13 11:00:00"):
             self.controller._scale_down(2, check_uptime=True)
         self.assertEqual(

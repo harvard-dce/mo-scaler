@@ -84,6 +84,7 @@ def status(controller):
 def scale():
     pass
 
+
 @scale.command()
 @click.argument('num_workers', type=int)
 @click.pass_obj
@@ -117,6 +118,7 @@ def down(controller, num_workers):
 def auto(controller):
 
     controller.scale('auto')
+
 
 def init_logging(debug):
     import logging.config

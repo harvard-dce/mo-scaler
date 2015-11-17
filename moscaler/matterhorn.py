@@ -8,9 +8,7 @@ import logging
 from requests.exceptions import Timeout as RequestsTimeout
 from contextlib import contextmanager
 from os import getenv as env
-from moscaler.exceptions import \
-    MatterhornCommunicationException, \
-    MatterhornNodeException
+from moscaler.exceptions import MatterhornCommunicationException
 
 LOGGER = logging.getLogger(__name__)
 
@@ -33,7 +31,7 @@ class MatterhornController(object):
 
         try:
             self.verify_connection()
-            self.refresh_hosts()
+            self.refresh_stats()
             self._online = True
         except MatterhornCommunicationException as exc:
             LOGGER.warning("Matterhorn connection failure: %s", str(exc))
@@ -57,8 +55,9 @@ class MatterhornController(object):
     def is_online(self):
         return self._online
 
-    def refresh_hosts(self):
+    def refresh_stats(self):
         self._hosts = self.client.hosts()
+        self._stats = self.client.statistics()
 
     def job_status(self):
         status = {
@@ -68,12 +67,22 @@ class MatterhornController(object):
             )
         }
         if self.is_online():
-            stats = self.client.statistics()
-            status['running_jobs'] = stats.running_jobs()
+            status['running_jobs'] = self._stats.running_jobs()
         else:
             status['running_jobs'] = 0
 
         return status
+
+    def node_status(self, inst):
+        if not self.is_online():
+            return {}
+        if not self.is_registered(inst):
+            return {'registered': False}
+        return {
+            'registered': self.is_registered(inst),
+            'maintenance': self.is_in_maintenance(inst),
+            'idle': self.is_idle(inst)
+        }
 
     def queued_job_count(self, operation_types=None):
 
@@ -104,37 +113,35 @@ class MatterhornController(object):
 
         return len(queued_jobs)
 
-    def get_host_by_url(self, host_url):
+    def is_registered(self, inst):
+        registered_hosts = [x.base_url for x in self._hosts]
+        return inst.mh_host_url in registered_hosts
+
+    def get_host(self, inst):
 
         try:
-            return next(h for h in self._hosts
-                        if h.base_url == 'http://' + host_url)
+            return next(x for x in self._hosts
+                        if x.base_url == inst.mh_host_url
+                        )
         except StopIteration:
-            raise MatterhornNodeException(
-                "No Matterhrorn node found for %s" % host_url
-            )
+            return None
 
-    def filter_idle(self, instances):
-        stats = self.client.statistics()
-
-        def is_idle(inst):
-            running_jobs = stats.running_jobs('http://' + inst.PrivateDns)
-            LOGGER.debug("%r has %d running jobs", inst, running_jobs)
-            return running_jobs == 0
-
-        return [x for x in instances if is_idle(x)]
+    def is_idle(self, inst):
+        running_jobs = self._stats.running_jobs(inst.mh_host_url)
+        LOGGER.debug("%r has %d running jobs", inst, running_jobs)
+        return running_jobs == 0
 
     def is_in_maintenance(self, inst):
-        host = self.get_host_by_url(inst.PrivateDns)
+        host = self.get_host(inst)
         return host.maintenance
 
     def maintenance_off(self, inst):
-        host = self.get_host_by_url(inst.PrivateDns)
+        host = self.get_host(inst)
         LOGGER.debug("Setting maintenance to off for %r", inst)
         host.set_maintenance(False)
 
     def maintenance_on(self, inst):
-        host = self.get_host_by_url(inst.PrivateDns)
+        host = self.get_host(inst)
         LOGGER.debug("Setting maintenance to on for %r", inst)
         host.set_maintenance(True)
 
@@ -147,7 +154,9 @@ class MatterhornController(object):
 
         # only deal with nodes that are not already in maintenance
         for_maintenance = [x for x in instances
-                           if not self.is_in_maintenance(x)]
+                           if self.is_registered(x)
+                           and not self.is_in_maintenance(x)
+                           ]
 
         if not len(for_maintenance):
             # don't do anything
@@ -158,7 +167,7 @@ class MatterhornController(object):
                     LOGGER.debug("Enabling maintenance mode for %r", inst)
                     if not dry_run:
                         self.maintenance_on(inst)
-                self.refresh_hosts()
+                self.refresh_stats()
                 yield  # let calling code do it's thing
             except Exception as exc:
                 LOGGER.debug(
@@ -180,4 +189,4 @@ class MatterhornController(object):
                             LOGGER.debug("Disabling maintenance for %r", inst)
                             if not dry_run:
                                 self.maintenance_off(inst)
-                    self.refresh_hosts()
+                    self.refresh_stats()

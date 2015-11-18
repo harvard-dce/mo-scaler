@@ -37,6 +37,19 @@ def handle_exit(cmd):
     return exit_wrapper
 
 
+def log_before_after_stats(cmd):
+    @wraps(cmd)
+    def wrapped(controller, *args, **kwargs):
+        status = controller.status()
+        LOGGER.info('Cluster status: %s', status, extra=status)
+        result = cmd(controller, *args, **kwargs)
+        actions = controller.action_summary()
+        LOGGER.info('Action summary: %s', actions,
+                    extra=actions)
+        return result
+    return wrapped
+
+
 @click.group()
 @click.option('-c', '--cluster', help="opsworks cluster name")
 @click.option('-p', '--profile', help="set/override default aws profile")
@@ -55,7 +68,7 @@ def cli(ctx, cluster, profile, debug, force, dry_run):
     if profile is not None:
         boto3.setup_default_session(profile_name=profile)
 
-    init_logging(debug)
+    init_logging(cluster, debug)
 
     if force:
         LOGGER.warn("--force mode enabled")
@@ -81,7 +94,9 @@ def status(controller):
 
 
 @cli.group()
-def scale():
+@click.pass_obj
+@log_before_after_stats
+def scale(controller):
     pass
 
 
@@ -120,7 +135,7 @@ def auto(controller):
     controller.scale('auto')
 
 
-def init_logging(debug):
+def init_logging(cluster, debug):
     import logging.config
     level = logging.getLevelName(debug and logging.DEBUG or logging.INFO)
     config = {
@@ -147,8 +162,10 @@ def init_logging(debug):
         },
         'formatters': {
             'basic': {
-                'format': ("%(asctime)s %(levelname)s "
-                           "%(module)s:%(funcName)s %(message)s")
+                'format': "[%(asctime)s] ["
+                          + cluster
+                          + "] [%(levelname)s] "
+                          + "[%(module)s:%(funcName)s] %(message)s"
             }
         }
     }
@@ -160,7 +177,7 @@ def init_logging(debug):
             'formatter': 'basic',
             'token': env('LOGGLY_TOKEN'),
             'host': 'https://logs-01.loggly.com',
-            'tags': 'mo-scaler'
+            'tags': 'mo-scaler,%s' % cluster
         }
 
     logging.config.dictConfig(config)

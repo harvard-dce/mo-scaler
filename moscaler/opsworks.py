@@ -111,6 +111,18 @@ class OpsworksController(object):
         LOGGER.debug("Cluster status: %s", json.dumps(status))
         return status
 
+    def action_summary(self):
+        stopped = [x for x in self.workers
+                   if x.action_taken == 'stopped']
+        started = [x for x in self.workers
+                   if x.action_taken == 'started']
+        return {
+            'total_stopped': len(stopped),
+            'stopped': '; '.join("%r" % x for x in stopped),
+            'total_started': len(started),
+            'started': ', '.join("%s" % x for x in started)
+        }
+
     def start_instance(self, inst):
         LOGGER.info("Starting %r", inst)
         if not self.dry_run:

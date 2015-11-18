@@ -119,7 +119,8 @@ class MatterhornController(object):
 
     def is_registered(self, inst):
         registered_hosts = [x.base_url for x in self._hosts]
-        return inst.mh_host_url in registered_hosts
+        return hasattr(inst, 'mh_host_url') \
+               and inst.mh_host_url in registered_hosts
 
     def get_host(self, inst):
 
@@ -134,6 +135,10 @@ class MatterhornController(object):
         running_jobs = self._stats.running_jobs(inst.mh_host_url)
         LOGGER.debug("%r has %d running jobs", inst, running_jobs)
         return running_jobs == 0
+
+    def filter_idle(self, instances):
+        self.refresh_stats()
+        return [x for x in instances if self.is_idle(x)]
 
     def is_in_maintenance(self, inst):
         host = self.get_host(inst)

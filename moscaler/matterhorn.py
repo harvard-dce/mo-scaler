@@ -135,6 +135,10 @@ class MatterhornController(object):
         LOGGER.debug("%r has %d running jobs", inst, running_jobs)
         return running_jobs == 0
 
+    def filter_idle(self, instances):
+        self.refresh_stats()
+        return [x for x in instances if self.is_idle(x)]
+
     def is_in_maintenance(self, inst):
         host = self.get_host(inst)
         return host.maintenance

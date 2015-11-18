@@ -1,9 +1,11 @@
-import json
 
+import json
 import arrow
 import boto3
 import logging
+from time import sleep
 from os import getenv as env
+from stopit import SignalTimeout, TimeoutException as StopitTimeout
 from operator import methodcaller, attrgetter
 from moscaler.matterhorn import MatterhornController
 from moscaler.exceptions import \
@@ -14,14 +16,16 @@ LOGGER = logging.getLogger(__name__)
 
 MIN_WORKERS = env('MOSCALER_MIN_WORKERS', 1)
 IDLE_UPTIME_THRESHOLD = env('MOSCALER_IDLE_UPTIME_THRESHOLD', 50)
+WAIT_FOR_IDLE = env('MOSCALER_WAIT_FOR_IDLE', 1800)
 
 
 class OpsworksController(object):
 
-    def __init__(self, cluster, force=False, dry_run=False):
+    def __init__(self, cluster, force=False, dry_run=False, wait_forever=False):
 
         self.force = force
         self.dry_run = dry_run
+        self.wait_forever = wait_forever
 
         self.opsworks = boto3.client('opsworks')
         self.ec2 = boto3.resource('ec2')
@@ -67,6 +71,10 @@ class OpsworksController(object):
     @property
     def online_or_pending_workers(self):
         return self.online_workers + self.pending_workers
+
+    @property
+    def idle_workers(self):
+        return self.mhorn.filter_idle(self.online_workers)
 
     @property
     def stopped_workers(self):
@@ -185,19 +193,17 @@ class OpsworksController(object):
         for inst in instances_to_start:
             inst.start()
 
-    def _scale_down(self, num_workers,
-                    check_uptime=False, stop_candidates=None):
-
-        current_workers = len(self.online_or_pending_workers)
+    def _scale_down(self, num_workers, check_uptime=False,
+                    wait_for_idle=False):
 
         # do we have that many running workers?
-        if current_workers - num_workers < 0:
+        if len(self.online_or_pending_workers) - num_workers < 0:
             raise OpsworksScalingException(
                 "Cluster does not have %d online or pending workers to stop!"
                 % num_workers
             )
 
-        if current_workers - num_workers < MIN_WORKERS:
+        if len(self.online_or_pending_workers) - num_workers < MIN_WORKERS:
             error_msg = "Stopping %d workers violates MIN_WORKERS %d!" \
                 % (num_workers, MIN_WORKERS)
             if self.force:
@@ -205,42 +211,70 @@ class OpsworksController(object):
             else:
                 raise OpsworksScalingException(error_msg)
 
-        if stop_candidates is None:
-            stop_candidates = self.pending_workers
-            stop_candidates += [x for x in self.online_workers
-                                if self.mhorn.is_idle(x)]
+        workers_to_stop = self._get_workers_to_stop(
+            num_workers, check_uptime, wait_for_idle
+            )
 
-        if len(stop_candidates) < num_workers:
-            error_msg = "Cluster does not have %d idle or pending workers!" \
-                        % num_workers
-            if self.force:
-                LOGGER.warning(error_msg)
-                # just pick from running workers
-                stop_candidates = self.online_or_pending_workers
+        if not len(workers_to_stop):
+            raise OpsworksScalingException("No workers available to stop!")
+
+        LOGGER.info("Stopping %d workers", len(workers_to_stop))
+        for inst in workers_to_stop:
+            inst.stop()
+
+    def _get_workers_to_stop(self, num_workers, check_uptime, wait_for_idle):
+
+        LOGGER.debug("Looking for %d workers to stop", num_workers)
+
+        if self.force:
+            LOGGER.warning("--force enabled; skipping idleness/uptime checks")
+            stop_candidates = self.online_or_pending_workers
+#            stop_candidates = self._sort_by_uptime(self.online_or_pending_workers)
+#            return stop_candidates[:num_workers]
+        else:
+            stop_candidates = self.pending_workers
+            stop_candidates += self.idle_workers
+
+            if wait_for_idle:
+                try:
+                    with self._idle_timeout():
+                        while len(stop_candidates) < num_workers:
+                            LOGGER.info("Only %d candidates; waiting for workers to become idle...")
+                            sleep(300)
+                            stop_candidates += [x for x in self.idle_workers
+                                                                      if x not in stop_candidates]
+                except StopitTimeout:
+                    LOGGER.info("Gave up waiting after %d seconds", WAIT_FOR_IDLE)
+                    stop_candidates = self.online_or_pending_workers
             else:
-                raise OpsworksScalingException(error_msg)
+                if len(stop_candidates) < num_workers:
+                    raise OpsworksScalingException(
+                        "Cluster does not have %d idle workers!" % num_workers
+                        )
+
+            if check_uptime:
+                stop_candidates = self._filter_by_billing_hour(stop_candidates)
+
+        stop_candidates = self._sort_by_uptime(stop_candidates)
+        return stop_candidates[:num_workers]
+
+    def _idle_timeout(self):
+        if self.wait_forever:
+            return None
+        else:
+            return SignalTimeout(WAIT_FOR_IDLE, swallow_exc=False)
+
+    def _sort_by_uptime(self, instances):
 
         # helps ensure we're stopping the longest-running, and also that we'll
         # stop the same instance again if (for some reason) an earlier stop
         # action got wedged
-        stop_candidates = sorted(
-            stop_candidates,
+        return sorted(
+            instances,
             key=methodcaller('uptime'),
             reverse=True)
 
-        if check_uptime:
-            stop_candidates = self.filter_by_billing_hour(stop_candidates)
-
-        instances_to_stop = stop_candidates[:num_workers]
-
-        if not len(instances_to_stop):
-            raise OpsworksScalingException("No workers available to stop!")
-
-        LOGGER.info("Stopping %d workers", len(instances_to_stop))
-        for inst in instances_to_stop:
-            inst.stop()
-
-    def filter_by_billing_hour(self, instances, uptime_threshold=None):
+    def _filter_by_billing_hour(self, instances, uptime_threshold=None):
         """
         only stop idle workers if approaching uptime near to being
         divisible by 60m since we're paying for the full hour anyway

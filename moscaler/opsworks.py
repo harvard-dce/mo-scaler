@@ -2,10 +2,7 @@
 import arrow
 import boto3
 import logging
-from time import sleep
 from os import getenv as env
-from contextlib import contextmanager
-from stopit import SignalTimeout, TimeoutException as StopitTimeout
 from operator import methodcaller, attrgetter
 from moscaler.matterhorn import MatterhornController
 from moscaler.exceptions import \
@@ -98,26 +95,28 @@ class OpsworksController(object):
             "workers": len(self.workers),
             "workers_online": len(self.online_workers),
             "workers_pending": len(self.pending_workers),
-            "instance_details": []
+            "worker_details": []
         }
 
         status['job_status'] = self.mhorn.job_status()
 
-        for inst in self.instances:
+        for inst in self.workers:
             inst_status = {
                 "state": inst.Status,
                 "opsworks_id": inst.InstanceId,
+                "ec2_id": inst.Ec2InstanceId,
                 "hostname": inst.Hostname,
-                "mh_host_url": inst.mh_host_url
+                "mh_host_url": inst.mh_host_url,
+                "uptime": inst.uptime(),
+                "billed_minutes": inst.billed_minutes(),
             }
-            if inst in self.workers:
-                inst_status.update(self.mhorn.node_status(inst))
-            if hasattr(inst, 'Ec2InstanceId'):
-                inst_status['ec2_id'] = inst.Ec2InstanceId
-            status['instance_details'].append(inst_status)
+            inst_status.update(self.mhorn.node_status(inst))
+#            if hasattr(inst, 'Ec2InstanceId'):
+#                inst_status['ec2_id'] = inst.Ec2InstanceId
+            status['worker_details'].append(inst_status)
         return status
 
-    def action_summary(self):
+    def actions(self):
         stopped = [x for x in self.workers
                    if x.action_taken == 'stopped']
         started = [x for x in self.workers
@@ -310,7 +309,7 @@ class OpsworksInstance(object):
             return 'http://' + self.PrivateDns
 
     def uptime(self):
-        if self.ec2_inst is None:
+        if self.ec2_inst is None or not self.is_online():
             return 0
         launch_time = arrow.get(self.ec2_inst.launch_time)
         now = arrow.utcnow()

@@ -69,10 +69,10 @@ class TestOpsworksInstance(unittest.TestCase):
     def test_uptime(self):
 
         # no ec2 instance == 0 uptime
-        inst = self._create({})
+        inst = self._create({'Status': 'online'})
         self.assertEqual(inst.uptime(), 0)
 
-        inst = self._create({})
+        inst = self._create({'Status': 'online'})
         inst.ec2_inst = MagicMock(launch_time=datetime(2015, 11, 12, 12, 0, 0))
         with freeze_time('2015-11-12 15:32:09'):
             self.assertEqual(inst.uptime(), 12729)
@@ -81,10 +81,10 @@ class TestOpsworksInstance(unittest.TestCase):
 
     def test_billed_minutes(self):
 
-        inst = self._create({})
+        inst = self._create({'Status': 'online'})
         self.assertEqual(inst.billed_minutes(), 0)
 
-        inst = self._create({})
+        inst = self._create({'Status': 'online'})
         inst.ec2_inst = MagicMock(launch_time=datetime(2015, 11, 12, 12, 0, 0))
         with freeze_time('2015-11-12 15:32:09'):
             self.assertEqual(inst.billed_minutes(), 32)

@@ -78,10 +78,8 @@ class MatterhornController(object):
         return status
 
     def node_status(self, inst):
-        if not self.is_online():
-            return {}
-        if not self.is_registered(inst):
-            return {'registered': False}
+        if not inst.is_online():
+            return {"registered": None, "maintenance": None, "idle": None}
         return {
             'registered': self.is_registered(inst),
             'maintenance': self.is_in_maintenance(inst),
@@ -119,8 +117,8 @@ class MatterhornController(object):
 
     def is_registered(self, inst):
         registered_hosts = [x.base_url for x in self._hosts]
-        return hasattr(inst, 'mh_host_url') \
-               and inst.mh_host_url in registered_hosts
+        return hasattr(inst, 'mh_host_url') and \
+               inst.mh_host_url in registered_hosts
 
     def get_host(self, inst):
 

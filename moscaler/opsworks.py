@@ -110,7 +110,8 @@ class OpsworksController(object):
             inst_status = {
                 "state": inst.Status,
                 "opsworks_id": inst.InstanceId,
-                "hostname": inst.Hostname
+                "hostname": inst.Hostname,
+                "mh_host_url": inst.mh_host_url
             }
             if inst in self.workers:
                 inst_status.update(self.mhorn.node_status(inst))

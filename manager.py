@@ -95,7 +95,6 @@ def status(controller):
 
 @cli.group()
 @click.pass_obj
-@log_before_after_stats
 def scale(controller):
     pass
 
@@ -104,6 +103,7 @@ def scale(controller):
 @click.argument('num_workers', type=int)
 @click.pass_obj
 @handle_exit
+@log_before_after_stats
 def to(controller, num_workers):
 
     controller.scale_to(num_workers)
@@ -113,6 +113,7 @@ def to(controller, num_workers):
 @click.argument('num_workers', type=int, default=1)
 @click.pass_obj
 @handle_exit
+@log_before_after_stats
 def up(controller, num_workers):
 
     controller.scale('up', num_workers)
@@ -122,6 +123,7 @@ def up(controller, num_workers):
 @click.argument('num_workers', type=int, default=1)
 @click.pass_obj
 @handle_exit
+@log_before_after_stats
 def down(controller, num_workers):
 
     controller.scale('down', num_workers)
@@ -130,6 +132,7 @@ def down(controller, num_workers):
 @scale.command()
 @click.pass_obj
 @handle_exit
+@log_before_after_stats
 def auto(controller):
 
     controller.scale('auto')
@@ -176,7 +179,7 @@ def init_logging(cluster, debug):
             'level': level,
             'formatter': 'basic',
             'token': env('LOGGLY_TOKEN'),
-            'host': 'https://logs-01.loggly.com',
+            'host': 'logs-01.loggly.com',
             'tags': 'mo-scaler,%s' % cluster
         }
 

@@ -1,10 +1,10 @@
 
-import json
 import arrow
 import boto3
 import logging
 from time import sleep
 from os import getenv as env
+from contextlib import contextmanager
 from stopit import SignalTimeout, TimeoutException as StopitTimeout
 from operator import methodcaller, attrgetter
 from moscaler.matterhorn import MatterhornController
@@ -14,9 +14,10 @@ from moscaler.exceptions import \
 
 LOGGER = logging.getLogger(__name__)
 
-MIN_WORKERS = env('MOSCALER_MIN_WORKERS', 1)
-IDLE_UPTIME_THRESHOLD = env('MOSCALER_IDLE_UPTIME_THRESHOLD', 50)
-WAIT_FOR_IDLE = env('MOSCALER_WAIT_FOR_IDLE', 1800)
+MIN_WORKERS = int(env('MOSCALER_MIN_WORKERS', 1))
+IDLE_UPTIME_THRESHOLD = int(env('MOSCALER_IDLE_UPTIME_THRESHOLD', 50))
+WAIT_FOR_IDLE = int(env('MOSCALER_WAIT_FOR_IDLE', 300))
+WAIT_FOR_IDLE_TIMEOUT = int(env('MOSCALER_WAIT_FOR_IDLE_TIMEOUT', 3600))
 
 
 class OpsworksController(object):
@@ -118,7 +119,6 @@ class OpsworksController(object):
             if hasattr(inst, 'Ec2InstanceId'):
                 inst_status['ec2_id'] = inst.Ec2InstanceId
             status['instance_details'].append(inst_status)
-        LOGGER.debug("Cluster status: %s", json.dumps(status))
         return status
 
     def action_summary(self):
@@ -242,12 +242,12 @@ class OpsworksController(object):
                             LOGGER.info("Only found %d stop candidates",
                                         len(stop_candidates))
                             LOGGER.info("Waiting for idle workers...")
-                            sleep(300)
+                            sleep(WAIT_FOR_IDLE)
                             stop_candidates += [x for x in self.idle_workers
                                                 if x not in stop_candidates]
                 except StopitTimeout:
                     LOGGER.info("Gave up waiting after %d seconds",
-                                WAIT_FOR_IDLE)
+                                WAIT_FOR_IDLE_TIMEOUT)
                     stop_candidates = self.online_or_pending_workers
             else:
                 if len(stop_candidates) < num_workers:
@@ -261,10 +261,17 @@ class OpsworksController(object):
         stop_candidates = self._sort_by_uptime(stop_candidates)
         return stop_candidates[:num_workers]
 
+    @contextmanager
     def _idle_timeout(self):
+        """
+        acts as a no-op context manager if wait_forever is true, otherwise
+        uses a signal timeout to abort waiting after the configured timeout
+        """
         if not self.wait_forever:
-            return SignalTimeout(WAIT_FOR_IDLE, swallow_exc=False)
-        return None
+            with SignalTimeout(WAIT_FOR_IDLE_TIMEOUT, swallow_exc=False):
+                yield
+        else:
+            yield
 
     def _sort_by_uptime(self, instances):
 
@@ -336,7 +343,8 @@ class OpsworksInstance(object):
 
     @property
     def mh_host_url(self):
-        return 'http://' + self.PrivateDns
+        if hasattr(self, 'PrivateDns'):
+            return 'http://' + self.PrivateDns
 
     def uptime(self):
         if self.ec2_inst is None:

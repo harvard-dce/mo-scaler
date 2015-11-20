@@ -361,3 +361,29 @@ class TestOpsworksController(unittest.TestCase):
             self.controller._scale_up,
             3
         )
+
+    def test_scale_auto_up(self):
+
+        self.controller.mhorn.queued_high_load_job_count.return_value = 1
+        with patch.object(self.controller, '_scale_up') as scale_up:
+            self.controller.scale('auto')
+            scale_up.assert_called_once_with(1)
+
+    def test_scale_auto_down(self):
+
+        instances = self._create_instances(
+            {'InstanceId': '1', 'Hostname': 'workers1', 'Status': 'online'},
+            {'InstanceId': '2', 'Hostname': 'workers2', 'Status': 'online'},
+            {'InstanceId': '3', 'Hostname': 'workers3', 'Status': 'online'},
+            wrap=True
+        )
+
+        self.controller._instances = instances
+        self.controller.mhorn.filter_idle.return_value = instances
+
+        self.controller.mhorn.queued_high_load_job_count.return_value = 0
+        with patch.object(self.controller, '_scale_down') as scale_down:
+            self.controller.scale('auto')
+            scale_down.assert_called_once_with(1, check_uptime=True)
+
+

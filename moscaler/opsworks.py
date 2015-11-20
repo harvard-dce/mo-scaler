@@ -173,7 +173,18 @@ class OpsworksController(object):
                     self._scale_auto()
 
     def _scale_auto(self):
-        raise NotImplementedError()
+
+        queued_jobs = self.mhorn.queued_high_load_job_count()
+        LOGGER.info("MH reports %d queued high load jobs", queued_jobs)
+
+        if queued_jobs > 0:
+            LOGGER.info("Attempting to scale up")
+            self._scale_up(1)
+        else:
+            LOGGER.info("Idle workers: %d", len(self.idle_workers))
+            if len(self.idle_workers):
+                LOGGER.info("Attempting to scale down")
+                self._scale_down(1, check_uptime=True)
 
     def _scale_up(self, num_workers):
 

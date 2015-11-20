@@ -66,9 +66,7 @@ class MatterhornController(object):
     def job_status(self):
         status = {
             'queued_jobs': self.queued_job_count(),
-            'queued_jobs_high_load': self.queued_job_count(
-                operation_types=HIGH_LOAD_JOB_TYPES
-            )
+            'queued_jobs_high_load': self.queued_high_load_job_count()
         }
         if self.is_online():
             status['running_jobs'] = self._stats.running_jobs()
@@ -87,6 +85,9 @@ class MatterhornController(object):
             'maintenance': self.is_in_maintenance(inst),
             'idle': self.is_idle(inst)
         }
+
+    def queued_high_load_job_count(self):
+        return self.queued_job_count(operation_types=HIGH_LOAD_JOB_TYPES)
 
     def queued_job_count(self, operation_types=None):
 
@@ -118,9 +119,8 @@ class MatterhornController(object):
         return len(queued_jobs)
 
     def is_registered(self, inst):
-        registered_hosts = [x.base_url for x in self._hosts]
-        return hasattr(inst, 'mh_host_url') \
-               and inst.mh_host_url in registered_hosts
+        registered = [x.base_url for x in self._hosts]
+        return hasattr(inst, 'mh_host_url') and inst.mh_host_url in registered
 
     def get_host(self, inst):
 

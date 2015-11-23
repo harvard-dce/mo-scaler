@@ -16,18 +16,14 @@ LOGGER = logging.getLogger(__name__)
 
 MIN_WORKERS = int(env('MOSCALER_MIN_WORKERS', 1))
 IDLE_UPTIME_THRESHOLD = int(env('MOSCALER_IDLE_UPTIME_THRESHOLD', 50))
-WAIT_FOR_IDLE = int(env('MOSCALER_WAIT_FOR_IDLE', 300))
-WAIT_FOR_IDLE_TIMEOUT = int(env('MOSCALER_WAIT_FOR_IDLE_TIMEOUT', 3600))
 
 
 class OpsworksController(object):
 
-    def __init__(self, cluster, force=False,
-                 dry_run=False, wait_forever=False):
+    def __init__(self, cluster, force=False, dry_run=False):
 
         self.force = force
         self.dry_run = dry_run
-        self.wait_forever = wait_forever
 
         self.opsworks = boto3.client('opsworks')
         self.ec2 = boto3.resource('ec2')
@@ -168,7 +164,7 @@ class OpsworksController(object):
                 if direction == "down":
                     LOGGER.info("Attempting to scale down %d workers",
                                 num_workers)
-                    self._scale_down(num_workers, wait_for_idle=True)
+                    self._scale_down(num_workers)
                 elif direction == "auto":
                     LOGGER.info("Initiating auto-scaling")
                     self._scale_auto()
@@ -195,8 +191,7 @@ class OpsworksController(object):
         for inst in instances_to_start:
             inst.start()
 
-    def _scale_down(self, num_workers, check_uptime=False,
-                    wait_for_idle=False):
+    def _scale_down(self, num_workers, check_uptime=False):
 
         # do we have that many running workers?
         if len(self.online_or_pending_workers) - num_workers < 0:
@@ -213,18 +208,18 @@ class OpsworksController(object):
             else:
                 raise OpsworksScalingException(error_msg)
 
-        workers_to_stop = self._get_workers_to_stop(
-            num_workers, check_uptime, wait_for_idle
-            )
+        workers_to_stop = self._get_workers_to_stop(num_workers, check_uptime)
 
-        if not len(workers_to_stop):
-            raise OpsworksScalingException("No workers available to stop!")
+        if len(workers_to_stop) < num_workers:
+            raise OpsworksScalingException(
+                "Cluster does not have %d idle workers!" % num_workers
+            )
 
         LOGGER.info("Stopping %d workers", len(workers_to_stop))
         for inst in workers_to_stop:
             inst.stop()
 
-    def _get_workers_to_stop(self, num_workers, check_uptime, wait_for_idle):
+    def _get_workers_to_stop(self, num_workers, check_uptime):
 
         LOGGER.debug("Looking for %d workers to stop", num_workers)
 
@@ -235,43 +230,11 @@ class OpsworksController(object):
             stop_candidates = self.pending_workers
             stop_candidates += self.idle_workers
 
-            if wait_for_idle:
-                try:
-                    with self._idle_timeout():
-                        while len(stop_candidates) < num_workers:
-                            LOGGER.info("Only found %d stop candidates",
-                                        len(stop_candidates))
-                            LOGGER.info("Waiting for idle workers...")
-                            sleep(WAIT_FOR_IDLE)
-                            stop_candidates += [x for x in self.idle_workers
-                                                if x not in stop_candidates]
-                except StopitTimeout:
-                    LOGGER.info("Gave up waiting after %d seconds",
-                                WAIT_FOR_IDLE_TIMEOUT)
-                    stop_candidates = self.online_or_pending_workers
-            else:
-                if len(stop_candidates) < num_workers:
-                    raise OpsworksScalingException(
-                        "Cluster does not have %d idle workers!" % num_workers
-                        )
-
             if check_uptime:
                 stop_candidates = self._filter_by_billing_hour(stop_candidates)
 
         stop_candidates = self._sort_by_uptime(stop_candidates)
         return stop_candidates[:num_workers]
-
-    @contextmanager
-    def _idle_timeout(self):
-        """
-        acts as a no-op context manager if wait_forever is true, otherwise
-        uses a signal timeout to abort waiting after the configured timeout
-        """
-        if not self.wait_forever:
-            with SignalTimeout(WAIT_FOR_IDLE_TIMEOUT, swallow_exc=False):
-                yield
-        else:
-            yield
 
     def _sort_by_uptime(self, instances):
 

@@ -146,7 +146,7 @@ class TestOpsworksController(unittest.TestCase):
 
         with patch.object(self.controller, '_scale_down', autospec=True) as scale_down:
             self.controller.scale_to(2)
-            scale_down.assert_called_once_with(2, wait_for_idle=True)
+            scale_down.assert_called_once_with(2)
 
         self.assertRaises(
             OpsworksControllerException,
@@ -220,24 +220,18 @@ class TestOpsworksController(unittest.TestCase):
         self.controller.mhorn.filter_idle.return_value = instances
 
         with freeze_time("2015-11-13 11:00:00"):
-            to_stop = self.controller._get_workers_to_stop(
-                2, check_uptime=True, wait_for_idle=False
-            )
+            to_stop = self.controller._get_workers_to_stop(2, check_uptime=True)
             self.assertEqual(['3'], [x._mock_wraps.InstanceId for x in to_stop])
 
         with patch('moscaler.opsworks.IDLE_UPTIME_THRESHOLD', 30):
             with freeze_time("2015-11-13 12:00:00"):
-                to_stop = self.controller._get_workers_to_stop(
-                    2, check_uptime=True, wait_for_idle=False
-                )
+                to_stop = self.controller._get_workers_to_stop(2, check_uptime=True)
                 # order is reversed here due to uptime sorting
                 self.assertEqual(['3','2'], [x._mock_wraps.InstanceId for x in to_stop])
 
         with patch('moscaler.opsworks.IDLE_UPTIME_THRESHOLD', 59):
             with freeze_time("2015-11-13 13:00:00"):
-                to_stop = self.controller._get_workers_to_stop(
-                    2, check_uptime=True, wait_for_idle=False
-                )
+                to_stop = self.controller._get_workers_to_stop(2, check_uptime=True)
                 self.assertEqual([], to_stop)
 
     def test_get_workers_to_stop_force(self):
@@ -251,54 +245,28 @@ class TestOpsworksController(unittest.TestCase):
         )
         self.controller._instances = instances
         self.controller.force = True
-        to_stop = self.controller._get_workers_to_stop(
-            4, check_uptime=False, wait_for_idle=False
-        )
+        to_stop = self.controller._get_workers_to_stop(4, check_uptime=False)
         self.assertEqual(3, len(to_stop))
         for idx in [0, 1, 3]:
             self.assertIn(instances[idx], to_stop)
 
-    @patch('moscaler.opsworks.sleep')
-    @patch('moscaler.opsworks.OpsworksController._idle_timeout')
-    def test_get_workers_to_stop_wait_for_idle(self, mock_cm, mock_sleep):
+    def test_scale_down_no_idle_workers(self):
 
         instances = self._create_instances(
             {'InstanceId': '1', 'Hostname': 'workers1', 'Status': 'online'},
             {'InstanceId': '2', 'Hostname': 'workers2', 'Status': 'online'},
             {'InstanceId': '3', 'Hostname': 'workers3', 'Status': 'online'},
-            wrap=True
-        )
-
-        self.controller._instances = instances
-        # return 1st two on 1st call to trigger wait loop, then 3 on next call
-        self.controller.mhorn.filter_idle.side_effect = [instances[:2], instances[:3]]
-
-        with patch('moscaler.opsworks.WAIT_FOR_IDLE', 333):
-            to_stop = self.controller._get_workers_to_stop(
-                3, check_uptime=False, wait_for_idle=True
-            )
-        mock_cm.assert_called_once_with()
-        mock_sleep.assert_called_once_with(333)
-
-    def test_get_workers_to_stop_wait_timeout(self):
-
-        instances = self._create_instances(
-            {'InstanceId': '1', 'Hostname': 'workers1', 'Status': 'online'},
-            {'InstanceId': '2', 'Hostname': 'workers2', 'Status': 'online'},
             {'InstanceId': '3', 'Hostname': 'workers3', 'Status': 'online'},
             wrap=True
         )
 
         self.controller._instances = instances
         self.controller.mhorn.filter_idle.return_value = instances[:2]
-
-        # patch the wait timeout value to 1s
-        with patch('moscaler.opsworks.LOGGER') as mock_logger:
-            with patch('moscaler.opsworks.WAIT_FOR_IDLE_TIMEOUT', 1):
-                to_stop = self.controller._get_workers_to_stop(
-                    3, check_uptime=False, wait_for_idle=True
-                )
-                mock_logger.info.assert_called_with('Gave up waiting after %d seconds', 1)
+        self.assertRaisesRegexp(
+            OpsworksScalingException,
+            "Cluster does not have 3",
+            self.controller._scale_down, 3, check_uptime=False
+        )
 
     def test_sort_by_uptime(self):
 
@@ -324,13 +292,6 @@ class TestOpsworksController(unittest.TestCase):
             ['3','1','2'],
             [x._mock_wraps.InstanceId for x in self.controller._sort_by_uptime(instances)]
         )
-
-    # def test_idle_timeout(self):
-    #     self.controller.wait_forever = True
-    #     cm = self.controller._idle_timeout()
-    #     self.assertIsNone(self.controller._idle_timeout())
-    #     self.controller.wait_forever = False
-    #     self.assertIsInstance(self.controller._idle_timeout(), SignalTimeout)
 
     def test_scale_up(self):
 

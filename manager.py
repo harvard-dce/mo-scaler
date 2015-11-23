@@ -56,10 +56,9 @@ def log_before_after_stats(cmd):
 @click.option('-d', '--debug', help="enable debug output", is_flag=True)
 @click.option('-f', '--force', is_flag=True)
 @click.option('-n', '--dry-run', is_flag=True)
-@click.option('-w', '--wait-forever', is_flag=True)
 @click.version_option(moscaler.__version__)
 @click.pass_context
-def cli(ctx, cluster, profile, debug, force, dry_run, wait_forever):
+def cli(ctx, cluster, profile, debug, force, dry_run):
 
     if cluster is None:
         cluster = env('MOSCALER_CLUSTER')
@@ -76,7 +75,7 @@ def cli(ctx, cluster, profile, debug, force, dry_run, wait_forever):
     if dry_run:
         LOGGER.warn("--dry-run mode enabled")
 
-    ctx.obj = OpsworksController(cluster, force, dry_run, wait_forever)
+    ctx.obj = OpsworksController(cluster, force, dry_run)
 
 
 @cli.resultcallback()

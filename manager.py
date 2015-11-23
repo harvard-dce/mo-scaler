@@ -140,7 +140,18 @@ def auto(controller):
 
 def init_logging(cluster, debug):
     import logging.config
-    level = logging.getLevelName(debug and logging.DEBUG or logging.INFO)
+
+    if debug:
+        level = logging.getLevelName(logging.DEBUG)
+        format = "[%(levelname)s] [" \
+                 + cluster \
+                 + "] [%(module)s:%(funcName)s:%(lineno)d] %(message)s"
+    else:
+        level = logging.getLevelName(logging.INFO)
+        format = "[%(levelname)s] [" \
+                 + cluster \
+                 + "] %(message)s"
+
     config = {
         'version': 1,
         'loggers': {
@@ -165,19 +176,16 @@ def init_logging(cluster, debug):
         },
         'formatters': {
             'basic': {
-                'format': "[%(asctime)s] ["
-                          + cluster
-                          + "] [%(levelname)s] "
-                          + "[%(module)s:%(funcName)s] %(message)s"
+                'format': format
             }
         }
     }
 
     if env('LOGGLY_TOKEN'):
+        config['loggers']['moscaler']['handlers'].append('loggly')
         config['handlers']['loggly'] = {
             'class': 'pyloggly.LogglyHandler',
             'level': level,
-            'formatter': 'basic',
             'token': env('LOGGLY_TOKEN'),
             'host': 'logs-01.loggly.com',
             'tags': 'mo-scaler,%s' % cluster

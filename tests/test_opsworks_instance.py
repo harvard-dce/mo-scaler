@@ -66,6 +66,14 @@ class TestOpsworksInstance(unittest.TestCase):
         self.assertFalse(self._create({'Status': 'stopped'}).is_online())
         self.assertFalse(self._create({'Status': 'foo'}).is_online())
 
+    def test_is_failed(self):
+
+        self.assertTrue(self._create({'Status': 'start_failed'}).is_failed())
+        self.assertTrue(self._create({'Status': 'setup_failed'}).is_failed())
+        self.assertFalse(self._create({'Status': 'online'}).is_failed())
+        self.assertFalse(self._create({'Status': 'stopped'}).is_failed())
+        self.assertFalse(self._create({'Status': 'foobar'}).is_failed())
+
     def test_uptime(self):
 
         # no ec2 instance == 0 uptime

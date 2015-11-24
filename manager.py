@@ -142,6 +142,15 @@ def auto(controller):
     controller.scale('auto')
 
 
+@cli.command()
+@click.pass_obj
+@handle_exit
+@log_before_after_stats
+def cleanup_failed(controller):
+
+    controller.cleanup_failed()
+
+
 def init_logging(cluster, debug):
     import logging.config
 

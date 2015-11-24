@@ -76,6 +76,10 @@ class OpsworksController(object):
         return [x for x in self.workers if x.is_stopped()]
 
     @property
+    def failed_workers(self):
+        return [x for x in self.workers if x.is_failed()]
+
+    @property
     def online_instances(self):
         return [x for x in self.instances if x.is_online()]
 
@@ -137,6 +141,15 @@ class OpsworksController(object):
         LOGGER.info("Stopping %r", inst)
         if not self.dry_run:
             self.opsworks.stop_instance(InstanceId=inst.InstanceId)
+
+    def cleanup_failed(self):
+
+        if len(self.failed_workers):
+            LOGGER.info("Found %d instances in failed start/setup state",
+                        len(self.failed_workers))
+            for inst in self.failed_workers:
+                LOGGER.debug("Status of %r is %s", repr(inst), inst.Status)
+                inst.stop()
 
     def scale_to(self, num_workers):
 
@@ -341,6 +354,9 @@ class OpsworksInstance(object):
 
     def is_stopped(self):
         return self.Status == "stopped"
+
+    def is_failed(self):
+        return self.Status in ['setup_failed', 'start_failed']
 
     def start(self):
         self.controller.start_instance(self)

@@ -324,3 +324,19 @@ class TestOpsworksController(unittest.TestCase):
             self.controller._scale_up,
             3
         )
+
+    def test_cleanup_failed(self):
+
+        self.controller._instances = self._create_instances(
+            {'InstanceId': '1', 'Hostname': 'workers1', 'Status': 'online'},
+            {'InstanceId': '2', 'Hostname': 'workers2', 'Status': 'start_failed'},
+            {'InstanceId': '3', 'Hostname': 'workers3', 'Status': 'stopped'},
+            {'InstanceId': '4', 'Hostname': 'workers4', 'Status': 'setup_failed'},
+            wrap=True
+        )
+
+        self.controller.cleanup_failed()
+        self.assertEqual(
+            [0,1,0,1],
+            [x.stop.call_count for x in self.controller._instances]
+        )

@@ -106,9 +106,18 @@ In the case of the `--force` option has the following effects:
 * Idle state of workers will be ignored
 * uptime/billing hour usage of workers will be ignored
 
-### --dry-run optionn
+### --dry-run option
 
 If `--dry-run` is enabled the process will run through and report what it would potentially do, but no instances will be started, stopped or taken in/out of maintenance.
+
+### --scale-available option
+
+Tells the `scale up` and `scale to` commands to ignore "not enough worker" conditions and just scale up whatever is available.
+
+**Example**: a cluster has 10 total workers, 2 online, 1 in a failed setup state, and 7 offline. By default, if asked to
+`scale to 10` the mo-scaler process will observe that it only has 7 available workers to spin up (i.e., there's no way to
+get to 10 workers,) and exit with a complaint about the cluster not having enough workers available. 
+With the `--scale-available` flag the process will only warn about not having enough workers and spin up the 7 available.
 
 ### Auto-scaling details
 

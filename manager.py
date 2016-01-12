@@ -105,22 +105,24 @@ def scale(controller):
 
 @scale.command()
 @click.argument('num_workers', type=int)
+@click.option('--scale-available', is_flag=True, default=False)
 @click.pass_obj
 @handle_exit
 @log_before_after_stats
-def to(controller, num_workers):
+def to(controller, num_workers, scale_available):
 
-    controller.scale_to(num_workers)
+    controller.scale_to(num_workers, scale_available)
 
 
 @scale.command()
 @click.argument('num_workers', type=int, default=1)
+@click.option('--scale-available', is_flag=True, default=False)
 @click.pass_obj
 @handle_exit
 @log_before_after_stats
-def up(controller, num_workers):
+def up(controller, num_workers, scale_available):
 
-    controller.scale('up', num_workers)
+    controller.scale('up', num_workers, scale_available)
 
 
 @scale.command()

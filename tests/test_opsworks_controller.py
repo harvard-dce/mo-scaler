@@ -142,7 +142,7 @@ class TestOpsworksController(unittest.TestCase):
 
         with patch.object(self.controller, '_scale_up', autospec=True) as scale_up:
             self.controller.scale_to(9)
-            scale_up.assert_called_once_with(5)
+            scale_up.assert_called_once_with(5, False)
 
         with patch.object(self.controller, '_scale_down', autospec=True) as scale_down:
             self.controller.scale_to(2)
@@ -317,6 +317,7 @@ class TestOpsworksController(unittest.TestCase):
             {'InstanceId': '3', 'Hostname': 'workers3', 'Status': 'stopped'},
             {'InstanceId': '4', 'Hostname': 'workers4', 'Status': 'online'},
             {'InstanceId': '5', 'Hostname': 'workers5', 'Status': 'stopped'},
+            wrap=True
         )
         self.assertRaisesRegexp(
             OpsworksScalingException,
@@ -324,3 +325,10 @@ class TestOpsworksController(unittest.TestCase):
             self.controller._scale_up,
             3
         )
+        self.controller._scale_up(3, scale_available=True)
+        self.assertEqual(
+                [0,0,1,0,1],
+                [x.start.call_count for x in self.controller._instances]
+        )
+
+

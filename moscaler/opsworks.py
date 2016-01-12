@@ -138,7 +138,7 @@ class OpsworksController(object):
         if not self.dry_run:
             self.opsworks.stop_instance(InstanceId=inst.InstanceId)
 
-    def scale_to(self, num_workers):
+    def scale_to(self, num_workers, scale_available=False):
 
         current_workers = len(self.online_or_pending_workers)
 
@@ -150,13 +150,13 @@ class OpsworksController(object):
         elif current_workers > num_workers:
             self.scale('down', current_workers - num_workers)
         else:
-            self.scale('up', num_workers - current_workers)
+            self.scale('up', num_workers - current_workers, scale_available)
 
-    def scale(self, direction, num_workers=None):
+    def scale(self, direction, num_workers=None, scale_available=False):
 
         if direction == "up":
             LOGGER.info("Attempting to scale up %d workers", num_workers)
-            self._scale_up(num_workers)
+            self._scale_up(num_workers, scale_available)
         else:
             with self.mhorn.in_maintenance(self.online_workers,
                                            dry_run=self.dry_run):
@@ -171,12 +171,15 @@ class OpsworksController(object):
     def _scale_auto(self):
         raise NotImplementedError()
 
-    def _scale_up(self, num_workers):
+    def _scale_up(self, num_workers, scale_available=False):
 
         # do we have enough non-running workers?
         if len(self.stopped_workers) < num_workers:
-            raise OpsworksScalingException(
-                "Cluster does not have {} to start!".format(num_workers))
+            msg = "Cluster does not have {} to start.".format(num_workers)
+            if scale_available:
+                LOGGER.warn(msg + " Scaling available workers.")
+            else:
+                raise OpsworksScalingException(msg)
 
         # prefer instances that already have an associated ec2 instance
         start_candidates = sorted(

@@ -54,11 +54,14 @@ The user/pass combo for the matterhorn system account.
 * `CLUSTER_NAME` - Name of the opsworks cluster to operate on
 * `AWS_PROFILE` - Use a specific AWS credentials profile. Note that this will not override an existing `$AWS_PROFILE`  in your environment.
 * `LOGGLY_TOKEN` - send log events to loggly
+* `AWS_DEFAULT_PROFILE` - this should only be necessary in an environment relying on AWS instance profile authentication
 
 ### Other settings of note
 
 * `MOSCALER_MIN_WORKERS` - minimum number of worker nodes to employ
 * `MOSCALER_IDLE_UPTIME_THRESHOLD` - minutes of its billing hour that an instance must be up before it is considered for reaping
+
+See below for additional settings related to autoscaling.
 
 ## Commands
 
@@ -95,7 +98,9 @@ Scale up/down to a specific number of instances
 
 #### auto
 
-Scale up/down 1 instance depending on the state of the cluster
+Scale up/down some number of instances using the logic of one of the "pluggable"
+autoscaling mechanisms (see below).
+
 `./manager scale auto`
 
 ### --force option
@@ -119,15 +124,67 @@ Tells the `scale up` and `scale to` commands to ignore "not enough worker" condi
 get to 10 workers,) and exit with a complaint about the cluster not having enough workers available. 
 With the `--scale-available` flag the process will only warn about not having enough workers and spin up the 7 available.
 
-### Auto-scaling details
+### Autoscaling
 
-The `scale auto` command is a simplified horizontal scaling mechanism. It examines
-the state of the cluster and then, based on that info decides whether to start or
-stop an instance. If it sees that there are "idle" workers, i.e., worker nodes that
-have no running jobs, it will attempt to stop 1 instance. If it sees that there
-are "high load" jobs in the queue it will attempt to start 1 instance. It is intended
-to be run as a cron job with a frequency of 2-5 minutes.
-      
+The `scale auto` command executes one of a set of configurable scaling mechanism. 
+The currently implemented options are defined via classes in `moscaler/autoscalers.py`.o
+
+* `LayerLoad`
+* `LayerLoadPlusOnlineWorkers`
+* `HighLoadJobs`
+
+#### LayerLoad
+
+`LayerLoad` uses the value of an Opsworks layer's cloudwatch metric to decide when to scale up/down.
+
+#### LayerLoadPlusOnlineWorkers
+
+`LayerLoadPlusOnlineWorkers` is a slight variation on `LayerLoad` that takes into
+account the number of existing online workers when deciding to scale up.
+
+#### HighLoadJobs
+
+`HighLoadJobs` uses data from the Matterhorn statistics API. Note that `HighLoadJobs` is problematic
+due to the less-than-desirable behavior of Matterhorn's job dispatching logic.
+
+#### Environment variable settings
+
+These are the settings that apply to both implementations:
+
+* `AUTOSCALE_TYPE`: Selects which method to use: one of either "LayerLoad" or "HighLoadJobs"
+
+* `AUTOSCALE_UP_THRESHOLD`: Value that the scaling mechanism should use when determining
+  whether to start more workers.
+
+* `AUTOSCALE_DOWN_THRESHOLD`: Value that the scaling mechanism should use when determining
+  whether to stop workers.
+
+* `AUTOSCALE_INCREMENT`: How many workers to start per scale up event
+
+* `AUTOSCALE_DOWN_INCREMENT`: How many workers to stop per scale down event
+
+* `AUTOSCALE_PAUSE_INTERVAL`: How long (in seconds) after a successful scale up
+  (or down, conceivably) event to block additional scale up (or down) events in order to
+  allow the starting (or stopping) of workers to influence the overall workload
+  of the cluster. **Note**: the `LayerLoad` autoscaler currently only pauses
+  when scaling up.
+
+Specific to the `LayerLoad` mechanism:
+
+* `AUTOSCALE_LAYERLOAD_METRIC`: name of the cloudwatch metric that should be queried
+  when determining whether to start/stop workers
+  
+* `AUTOSCALE_LAYERLOAD_LAYER_ID`: id of the Opsworks layer for which the
+  metric should be queried
+
+* `AUTOSCALE_LAYERLOAD_SAMPLE_COUNT`: number of metric datapoints to sample.
+
+* `AUTOSCALE_LAYERLOAD_SAMPLE_PERIOD`: granularity of the datapoints.
+
+For some context on the LayerLoad settings it would probably be helpful to review
+the docs for the boto3 CloudWatch client's `get_metric_statistics` method, which is
+what these config values eventually get passed to.
+
 #### Billing considerations
 
 When an ec2 instance is started it is billed for 1 hour of usage, regardless of how

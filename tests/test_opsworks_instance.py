@@ -1,7 +1,7 @@
 
 import unittest
 from datetime import datetime
-from mock import patch, MagicMock, PropertyMock
+from mock import MagicMock
 from freezegun import freeze_time
 
 from moscaler.opsworks import OpsworksInstance, OpsworksController

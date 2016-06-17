@@ -194,7 +194,7 @@ def init_logging(cluster, debug):
             'level': level,
             'token': env('LOGGLY_TOKEN'),
             'host': 'logs-01.loggly.com',
-            'tags': 'mo-scaler,%s' % cluster
+            'tags': 'mo-scaler,%s' % cluster.replace(' ', '-')
         }
 
     logging.config.dictConfig(config)

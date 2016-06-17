@@ -153,6 +153,9 @@ class OpsworksController(object):
         if direction == "up":
             LOGGER.info("Attempting to scale up %d workers", num_workers)
             self._scale_up(num_workers, scale_available)
+        elif direction == "auto":
+            LOGGER.info("Initiating auto-scaling")
+            self._scale_auto()
         else:
             with self.mhorn.in_maintenance(self.online_workers,
                                            dry_run=self.dry_run):
@@ -160,12 +163,30 @@ class OpsworksController(object):
                     LOGGER.info("Attempting to scale down %d workers",
                                 num_workers)
                     self._scale_down(num_workers)
-                elif direction == "auto":
-                    LOGGER.info("Initiating auto-scaling")
-                    self._scale_auto()
 
     def _scale_auto(self):
-        raise NotImplementedError()
+
+        AUTOSCALE_TYPE = env('AUTOSCALE_TYPE')
+
+        if not AUTOSCALE_TYPE:
+            raise OpsworksScalingException("No autoscaling type defined")
+
+        from autoscalers import create_autoscaler
+
+        try:
+            autoscaler = create_autoscaler(AUTOSCALE_TYPE, self)
+        except Exception, e:
+            raise OpsworksControllerException(
+                "Failed loading autoscale type '%s'" % AUTOSCALE_TYPE
+            )
+
+        try:
+            LOGGER.info("Executing autoscale type: %s" , AUTOSCALE_TYPE)
+            autoscaler.scale()
+        except Exception, e:
+            raise OpsworksScalingException(
+                "Autoscale aborted: %s" % str(e)
+            )
 
     def _scale_up(self, num_workers, scale_available=False):
 
@@ -189,31 +210,39 @@ class OpsworksController(object):
         for inst in instances_to_start:
             inst.start()
 
-    def _scale_down(self, num_workers, check_uptime=False):
+    def _scale_down(self, num_workers, check_uptime=False, scale_available=False):
 
         MIN_WORKERS = int(env('MOSCALER_MIN_WORKERS', 1))
 
         # do we have that many running workers?
         if len(self.online_or_pending_workers) - num_workers < 0:
-            raise OpsworksScalingException(
-                "Cluster does not have %d online or pending workers to stop!"
+            msg = "Cluster does not have %d online or pending workers to stop!" \
                 % num_workers
-            )
+            if scale_available:
+                LOGGER.warn(msg + " Trying with fewer workers.")
+                return self._scale_down(num_workers - 1, check_uptime, scale_available)
+            else:
+                raise OpsworksScalingException(msg)
 
-        if len(self.online_or_pending_workers) - num_workers < MIN_WORKERS:
-            error_msg = "Stopping %d workers violates MIN_WORKERS %d!" \
+        if len(self.online_workers) - num_workers < MIN_WORKERS:
+            msg = "Stopping %d workers violates MIN_WORKERS %d!" \
                 % (num_workers, MIN_WORKERS)
             if self.force:
-                LOGGER.warning(error_msg)
+                LOGGER.warning(msg + " Continuing because --force enabled.")
+            elif scale_available and num_workers > 1:
+                LOGGER.warn(msg + " Trying with fewer workers.")
+                return self._scale_down(num_workers - 1, check_uptime, scale_available)
             else:
-                raise OpsworksScalingException(error_msg)
+                raise OpsworksScalingException(msg)
 
         workers_to_stop = self._get_workers_to_stop(num_workers, check_uptime)
 
         if len(workers_to_stop) < num_workers:
-            raise OpsworksScalingException(
-                "Cluster does not have %d idle workers!" % num_workers
-            )
+            msg = "Cluster does not have %d workers available to stop!" % num_workers
+            if len(workers_to_stop) and scale_available:
+                LOGGER.warn(msg + " Only stopping available workers.")
+            else:
+                raise OpsworksScalingException(msg)
 
         LOGGER.info("Stopping %d workers", len(workers_to_stop))
         for inst in workers_to_stop:

@@ -1,9 +1,9 @@
 
+import os
 import unittest
-from mock import patch, MagicMock, PropertyMock
+from mock import patch, MagicMock
 from datetime import datetime
 from freezegun import freeze_time
-from stopit import SignalTimeout
 
 import boto3
 from moscaler.exceptions import *
@@ -168,7 +168,7 @@ class TestOpsworksController(unittest.TestCase):
             self.controller._scale_down, 4
         )
 
-    @patch('moscaler.opsworks.MIN_WORKERS', 3)
+    @patch.dict(os.environ, {'MOSCALER_MIN_WORKERS': '3'})
     def test_scale_down_min_workers(self):
 
         self.controller._instances = self._create_instances(
@@ -223,13 +223,13 @@ class TestOpsworksController(unittest.TestCase):
             to_stop = self.controller._get_workers_to_stop(2, check_uptime=True)
             self.assertEqual(['3'], [x._mock_wraps.InstanceId for x in to_stop])
 
-        with patch('moscaler.opsworks.IDLE_UPTIME_THRESHOLD', 30):
+        with patch.dict(os.environ, {'MOSCALER_IDLE_UPTIME_THRESHOLD': '30'}):
             with freeze_time("2015-11-13 12:00:00"):
                 to_stop = self.controller._get_workers_to_stop(2, check_uptime=True)
                 # order is reversed here due to uptime sorting
                 self.assertEqual(['3','2'], [x._mock_wraps.InstanceId for x in to_stop])
 
-        with patch('moscaler.opsworks.IDLE_UPTIME_THRESHOLD', 59):
+        with patch.dict(os.environ, {'MOSCALER_IDLE_UPTIME_THRESHOLD': '59'}):
             with freeze_time("2015-11-13 13:00:00"):
                 to_stop = self.controller._get_workers_to_stop(2, check_uptime=True)
                 self.assertEqual([], to_stop)
@@ -267,6 +267,37 @@ class TestOpsworksController(unittest.TestCase):
             "Cluster does not have 3",
             self.controller._scale_down, 3, check_uptime=False
         )
+
+    def test_scale_down_available_workers(self):
+
+        instances = self._create_instances(
+            {'InstanceId': '1', 'Hostname': 'workers1', 'Status': 'online'},
+            {'InstanceId': '2', 'Hostname': 'workers2', 'Status': 'stopped'},
+            {'InstanceId': '3', 'Hostname': 'workers3', 'Status': 'online'},
+            {'InstanceId': '3', 'Hostname': 'workers3', 'Status': 'stopped'},
+            wrap=True
+        )
+
+        self.controller._instances = instances
+        self.controller.mhorn.filter_idle.return_value = instances[:2]
+
+
+        with patch.dict(os.environ, {'MOSCALER_MIN_WORKERS': '0'}):
+            self.controller._scale_down(3, check_uptime=False, scale_available=True)
+            # should stop all available
+            self.assertEqual(
+                2,
+                len([x for x in self.controller._instances if x.stop.call_count == 1])
+            )
+
+        with patch.dict(os.environ, {'MOSCALER_MIN_WORKERS': '1'}):
+            self.controller._scale_down(3, check_uptime=False, scale_available=True)
+            # should stop all available w/ respect to min workers
+            self.assertEqual(
+                1,
+                len([x for x in self.controller._instances if x.stop.call_count == 1])
+            )
+
 
     def test_sort_by_uptime(self):
 

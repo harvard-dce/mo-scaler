@@ -11,10 +11,6 @@ from moscaler.exceptions import \
 
 LOGGER = logging.getLogger(__name__)
 
-MIN_WORKERS = int(env('MOSCALER_MIN_WORKERS', 1))
-IDLE_UPTIME_THRESHOLD = int(env('MOSCALER_IDLE_UPTIME_THRESHOLD', 50))
-
-
 class OpsworksController(object):
 
     def __init__(self, cluster, force=False, dry_run=False):
@@ -195,6 +191,8 @@ class OpsworksController(object):
 
     def _scale_down(self, num_workers, check_uptime=False):
 
+        MIN_WORKERS = int(env('MOSCALER_MIN_WORKERS', 1))
+
         # do we have that many running workers?
         if len(self.online_or_pending_workers) - num_workers < 0:
             raise OpsworksScalingException(
@@ -253,6 +251,8 @@ class OpsworksController(object):
         only stop idle workers if approaching uptime near to being
         divisible by 60m since we're paying for the full hour anyway
         """
+
+        IDLE_UPTIME_THRESHOLD = int(env('MOSCALER_IDLE_UPTIME_THRESHOLD', 50))
 
         if uptime_threshold is None:
             uptime_threshold = IDLE_UPTIME_THRESHOLD

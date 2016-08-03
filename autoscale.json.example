@@ -1,0 +1,42 @@
+{
+  "strategies": [
+    {
+      "method": "cloudwatch",
+      "name": "layer load",
+      "settings": {
+        "metric": "load_1",
+        "layer_name": "Workers",
+        "namespace": "AWS/OpsWorks",
+        "up_threshold": 10.0,
+        "down_threshold": 8.0,
+        "up_threshold_online_workers_multiplier": 1
+      }
+    },
+    {
+      "method": "cloudwatch",
+      "name": "layer iowait",
+      "settings": {
+        "layer_name": "Workers",
+        "namespace": "AWS/OpsWorks",
+        "metric": "cpu_waitio",
+        "up_threshold": 4.0,
+        "down_threshold": 1.0,
+        "up_threshold_online_workers_multiplier": 1
+      }
+    },
+    {
+      "method": "cloudwatch",
+      "name": "mh queued jobs",
+      "settings": {
+        "metric": "MatterhornJobsQueued",
+        "instance_name": "monitoring-master1",
+        "namespace": "AWS/OpsworksCustom",
+        "up_threshold": 4,
+        "down_threshold": 1
+      }
+    }
+  ],
+  "pause_cycles": 1,
+  "up_increment": 2,
+  "down_increment": 1
+}

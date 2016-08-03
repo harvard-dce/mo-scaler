@@ -5,6 +5,7 @@ import logging
 from os import getenv as env
 from operator import methodcaller, attrgetter
 from moscaler.matterhorn import MatterhornController
+from moscaler.autoscale import Autoscaler
 from moscaler.exceptions import \
     OpsworksControllerException, \
     OpsworksScalingException
@@ -82,6 +83,17 @@ class OpsworksController(object):
         except StopIteration:
             raise OpsworksControllerException("No admin node found")
 
+    def get_layer_id(self, layer_name):
+        layers = self.opsworks.describe_layers(StackId=self.stack['StackId'])['Layers']
+        try:
+            layer = next(x for x in layers if x['Name'] == layer_name)
+            return layer['LayerId']
+        except StopIteration:
+            raise OpsworksControllerException("Could not find layer '%s'" % layer_name)
+
+    def get_ec2_id(self, instance_name):
+        return next(x.Ec2InstanceId for x in self.instances if x.Hostname == instance_name)
+
     def status(self):
         status = {
             "cluster": self.stack['Name'],
@@ -153,9 +165,6 @@ class OpsworksController(object):
         if direction == "up":
             LOGGER.info("Attempting to scale up %d workers", num_workers)
             self._scale_up(num_workers, scale_available)
-        elif direction == "auto":
-            LOGGER.info("Initiating auto-scaling")
-            self._scale_auto()
         else:
             with self.mhorn.in_maintenance(self.online_workers,
                                            dry_run=self.dry_run):
@@ -164,25 +173,13 @@ class OpsworksController(object):
                                 num_workers)
                     self._scale_down(num_workers)
 
-    def _scale_auto(self):
+    def autoscale(self, settings):
 
-        AUTOSCALE_TYPE = env('AUTOSCALE_TYPE')
-
-        if not AUTOSCALE_TYPE:
-            raise OpsworksScalingException("No autoscaling type defined")
-
-        from autoscalers import create_autoscaler
+        autoscaler = Autoscaler(self, settings)
 
         try:
-            autoscaler = create_autoscaler(AUTOSCALE_TYPE, self)
-        except Exception, e:
-            raise OpsworksControllerException(
-                "Failed loading autoscale type '%s'" % AUTOSCALE_TYPE
-            )
-
-        try:
-            LOGGER.info("Executing autoscale type: %s" , AUTOSCALE_TYPE)
-            autoscaler.scale()
+            LOGGER.info("Executing autoscaler")
+            autoscaler.execute()
         except Exception, e:
             raise OpsworksScalingException(
                 "Autoscale aborted: %s" % str(e)

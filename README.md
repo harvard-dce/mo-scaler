@@ -101,7 +101,9 @@ Scale up/down to a specific number of instances
 Scale up/down some number of instances using the logic of one of the "pluggable"
 autoscaling mechanisms (see below).
 
-`./manager scale auto`
+`./manager scale auto [-c config file]`
+
+The optional `-c` can point to a json file with autoscaling configuration.
 
 ### --force option
 
@@ -124,68 +126,92 @@ Tells the `scale up` and `scale to` commands to ignore "not enough worker" condi
 get to 10 workers,) and exit with a complaint about the cluster not having enough workers available. 
 With the `--scale-available` flag the process will only warn about not having enough workers and spin up the 7 available.
 
-### Autoscaling
+## Autoscaling
 
-The `scale auto` command executes one of a set of configurable scaling mechanism. 
-The currently implemented options are defined via classes in `moscaler/autoscalers.py`.o
+The `scale auto` command executes the autoscaling strategies defined in the autoscale
+configuration. Configuration can be provided via the `-c` option or the `AUTOSCALE_CONFIG`
+env var, either of which can contain a json string or point to a json file.
 
-* `LayerLoad`
-* `LayerLoadPlusOnlineWorkers`
-* `HighLoadJobs`
+The autoscaling configuration defines one or more
+"strategies" that tell the autoscaler what to use as the source(s) for scale up/down
+decisions. Each strategy has a set of corresponding settings (thresholds, metric name, etc).
+There are also a few top-level settings that affect all strategies.
 
-#### LayerLoad
+See [`autoscale.json.example`](./autoscale.json.example) for an example configuration.
 
-`LayerLoad` uses the value of an Opsworks layer's cloudwatch metric to decide when to scale up/down.
+### top-level options
 
-#### LayerLoadPlusOnlineWorkers
+* `increment_up` - number of workers to attempt to start per scale up event
+* `increment_down` - number of workers to attempt to stop per scale down event
+* `pause_cycles` - following a successful scale up event the auto scaler will
+  "pause" for this many execution cycles in order to allow the starting
+  workers to come online and influence the workload of the cluster.
 
-`LayerLoadPlusOnlineWorkers` is a slight variation on `LayerLoad` that takes into
-account the number of existing online workers when deciding to scale up.
+### Strategies
 
-#### HighLoadJobs
+There are currently two strategy methods implemented: `cloudwatch` which consults a
+cloudwatch metric, and `queued_jobs` which queries Matterhorn to get the count of
+jobs which are currently queued up waiting to be dispatced to workers. *Note that,
+as of this writing, the number of queued Matterhorn jobs is soon to be available
+as a cloudwatch metric, which means the `queued_jobs` strategy should probably be
+considered deprecated.*
 
-`HighLoadJobs` uses data from the Matterhorn statistics API. Note that `HighLoadJobs` is problematic
-due to the less-than-desirable behavior of Matterhorn's job dispatching logic.
+Example:
 
-#### Environment variable settings
+in your `autoscale.json`...
 
-These are the settings that apply to both implementations:
+    "strategies": [
+        {
+          "method": "cloudwatch",
+          "name": "layer load",
+          "settings": {
+            "metric": "load_1",
+            "layer_name": "Workers",
+            "namespace": "AWS/OpsWorks",
+            "up_threshold": 10.0,
+            "down_threshold": 8.0,
+            "up_threshold_online_workers_multiplier": 1
+          }
+        }
+    ]...
 
-* `AUTOSCALE_TYPE`: Selects which method to use: one of either "LayerLoad" or "HighLoadJobs"
+Each configured strategy must have both of
 
-* `AUTOSCALE_UP_THRESHOLD`: Value that the scaling mechanism should use when determining
-  whether to start more workers.
+* `method` - "cloudwatch" or "queued_jobs". (This corresponds to a method on
+  the `moscaler.autoscale.Autoscaler` class.)
+* `name` - unique name for the strategy settings. Primarily to distinguish the execution
+  of the strategy in the logs.
 
-* `AUTOSCALE_DOWN_THRESHOLD`: Value that the scaling mechanism should use when determining
-  whether to stop workers.
+#### cloudwatch
 
-* `AUTOSCALE_INCREMENT`: How many workers to start per scale up event
+Scales up/down based on values retreived from cloudwatch.
 
-* `AUTOSCALE_DOWN_INCREMENT`: How many workers to stop per scale down event
+* `metric` - name of the metric to retrieve
+* `layer_name` - name of the layer to query metrics for.
+* `instance_name` (not shown) - fetch metrics for a specific instance rather
+  than a whole layer. e.g., `"instance_name": "admin1"`
+* `up_threshold` - all metric datapoints recieved from cloudwatch must equal or exceed
+  this value for a scale up event to be triggered
+* `down_threshold` - all datapoints must be less than this value for a scale down
+  event to be triggered
+* `up_threshold_online_worker_multiplier` - if defined, the `up_threshold` value will
+  be increased by the number of current online workers multiplied by this value.
 
-* `AUTOSCALE_PAUSE_INTERVAL`: How long (in seconds) after a successful scale up
-  (or down, conceivably) event to block additional scale up (or down) events in order to
-  allow the starting (or stopping) of workers to influence the overall workload
-  of the cluster. **Note**: the `LayerLoad` autoscaler currently only pauses
-  when scaling up.
+Optional settings:
 
-Specific to the `LayerLoad` mechanism:
+* `sample_count` - number of metric datapoints to sample. Default is 3.
+* `sample_period` - granularity of the datapoints in seconds. Default is 60.
 
-* `AUTOSCALE_LAYERLOAD_METRIC`: name of the cloudwatch metric that should be queried
-  when determining whether to start/stop workers
-  
-* `AUTOSCALE_LAYERLOAD_LAYER_ID`: id of the Opsworks layer for which the
-  metric should be queried
-
-* `AUTOSCALE_LAYERLOAD_SAMPLE_COUNT`: number of metric datapoints to sample.
-
-* `AUTOSCALE_LAYERLOAD_SAMPLE_PERIOD`: granularity of the datapoints.
-
-For some context on the LayerLoad settings it would probably be helpful to review
+For some context on the cloudwatch strategies it might be helpful to review
 the docs for the boto3 CloudWatch client's `get_metric_statistics` method, which is
 what these config values eventually get passed to.
 
-#### Billing considerations
+#### queued_jobs
+
+Don't use this one. Fetching the queued jobs metric from cloudwatch is better as it
+allows the scaler to get several datapoints across a span of time.
+
+### Billing considerations
 
 When an ec2 instance is started it is billed for 1 hour of usage, regardless of how
 much of that hour it is actually running. Therefore, it is potentially costly to

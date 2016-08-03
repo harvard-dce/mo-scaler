@@ -61,3 +61,4 @@ target/
 
 logs/
 .env
+autoscale.json

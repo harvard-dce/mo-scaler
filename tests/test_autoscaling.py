@@ -9,118 +9,106 @@ from datetime import datetime
 from freezegun import freeze_time
 
 from moscaler.opsworks import OpsworksController
-from moscaler.autoscalers import Autoscaler, create_autoscaler
+from moscaler.autoscale import Autoscaler
 
 
-class TestAutoscalingBase(unittest.TestCase):
+class TestAutoscaling(unittest.TestCase):
 
-    def setUp(self):
-        self.mock_controller = MagicMock(spec=OpsworksController)
-        self.pause_file_dir = tempfile.mkdtemp()
+#    def setUp(self):
+#        self.pause_file_dir = tempfile.mkdtemp()
+#
+#    def tearDown(self):
+#        shutil.rmtree(self.pause_file_dir)
 
+    def _create(self, config=None):
+        pause_file_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, pause_file_dir)
+        mock_controller = MagicMock(spec=OpsworksController)
         mock_mhorn = PropertyMock(return_value=MagicMock())
-        type(self.mock_controller).mhorn = mock_mhorn
-
-    def tearDown(self):
-        shutil.rmtree(self.pause_file_dir)
-
-    def _create(self, type=None):
-        if type is None:
-            return Autoscaler(self.mock_controller, self.pause_file_dir)
-        else:
-            return create_autoscaler(type, self.mock_controller)
-
-
-class TestAutoscaler(TestAutoscalingBase):
+        type(mock_controller).mhorn = mock_mhorn
+        type(mock_controller).dry_run = False
+        return Autoscaler(mock_controller, config, pause_file_dir)
 
     def test_scaling_paused_no_interval(self):
         self.assertFalse(self._create().scaling_paused())
 
-    @patch.dict(os.environ, {'AUTOSCALE_PAUSE_INTERVAL': '100'})
     def test_scaling_paused_no_pause_file(self):
         self.assertFalse(self._create().scaling_paused())
 
-    @patch.dict(os.environ, {'AUTOSCALE_PAUSE_INTERVAL': '100'})
+    def test_scaling_paused_empty_pause_file(self):
+        autoscaler = self._create()
+        open(autoscaler.pause_file, 'a').close()
+        self.assertFalse(autoscaler.scaling_paused())
+
     def test_pause_scaling(self):
         autoscaler = self._create()
         self.assertFalse(autoscaler.scaling_paused())
-        autoscaler.pause_scaling()
+        autoscaler.pause_scaling(1)
         self.assertTrue(autoscaler.scaling_paused())
+        # check again to confirm
+        self.assertTrue(autoscaler.scaling_paused())
+        autoscaler.tick_pause_cycles()
+        self.assertFalse(autoscaler.scaling_paused())
+        autoscaler._write_pause_file(-1)
+        self.assertFalse(autoscaler.scaling_paused())
 
-    @patch.dict(os.environ, {'AUTOSCALE_PAUSE_INTERVAL': '100'})
-    def test_pause_scaling_expire(self):
+    def test_tick_pause_cycles(self):
         autoscaler = self._create()
         self.assertFalse(autoscaler.scaling_paused())
-        autoscaler.pause_scaling()
-        self.assertTrue(autoscaler.scaling_paused())
-        three_minutes_ago = time.time() - 180
-        os.utime(autoscaler.pause_file, (three_minutes_ago, three_minutes_ago))
-        self.assertFalse(autoscaler.scaling_paused())
+        self.assertEqual(autoscaler._read_pause_file(), 0)
+        autoscaler.pause_scaling(5)
+        self.assertEqual(autoscaler._read_pause_file(), 5)
+        autoscaler.tick_pause_cycles()
+        self.assertEqual(autoscaler._read_pause_file(), 4)
+        autoscaler.tick_pause_cycles()
+        autoscaler.tick_pause_cycles()
+        autoscaler.tick_pause_cycles()
+        self.assertEqual(autoscaler._read_pause_file(), 1)
+        autoscaler.tick_pause_cycles()
+        self.assertEqual(autoscaler._read_pause_file(), 0)
+        self.assertFalse(os.path.exists(autoscaler.pause_file))
 
+    def test_up_or_down(self):
+        autoscaler = self._create()
 
-LAYER_LOAD_TEST_ENV = {
-    'AUTOSCALE_UP_THRESHOLD': '1.0',
-    'AUTOSCALE_DOWN_THRESHOLD': '2.0',
-    'AUTOSCALE_LAYERLOAD_METRIC': 'foo-metric',
-    'AUTOSCALE_LAYERLOAD_LAYER_ID': 'abc123',
-    'AUTOSCALE_LAYERLOAD_SAMPLE_COUNT': '5',
-    'AUTOSCALE_LAYERLOAD_SAMPLE_PERIOD': '60'
-}
+        def _check(direction, up_thresh, down_thresh, dps):
+            self.assertEqual(
+                direction,
+                autoscaler._up_or_down(dps, up_thresh, down_thresh)
+            )
 
-class TestLayerLoadAutoscaling(TestAutoscalingBase):
+        _check('up', 10.0, 4.0, [11, 100.0, 49.55, 20])
+        _check('up', 2, 1, [2, 2.3, 99])
+        _check(None, 2, 1, [2, 2.3, 1.6])
+        _check(None, 20.0, 10.0, [1.0, 30.0, 15])
+        _check(None, 10, 5, [1, 3.3, 5])
+        _check(None, 2, 1, [])
+        _check('down', 10, 5, [1, 3.3, 4.9])
+        _check('down', 2, 1, [0.2, 0.3, 0.9])
 
-    @patch.dict(os.environ, LAYER_LOAD_TEST_ENV)
-    def test_over_under_threshold(self):
-        autoscaler = self._create(type='LayerLoad')
-        self.assertTrue(autoscaler._over_threshold([1.1, 2.0, 100.0, 57.3, 9]))
-        self.assertFalse(autoscaler._over_threshold([1, 1.0, 1.7, 0.5, 0, 3.3]))
-        self.assertTrue(autoscaler._under_threshold([1.9, 0.5, 0, 1, 1.0]))
-        self.assertFalse(autoscaler._under_threshold([2.0, 2, 3.1, 10, 1, 0.5]))
+    def test_scale_up_or_down(self):
 
-    @patch.dict(os.environ, LAYER_LOAD_TEST_ENV)
-    def test_autoscale_up(self):
-
-        autoscaler = self._create(type='LayerLoad')
-        autoscaler.scaling_paused = MagicMock(return_value=False)
-        autoscaler.pause_scaling = MagicMock()
-        mock_cloudwatch = MagicMock()
-        mock_cloudwatch.get_metric_statistics.return_value = {
-            'Datapoints': [{'Average': x} for x in [2.0, 2.5, 10.5]]
+        config = {
+                'pause_cycles': 1,
+                'up_increment': 1,
+                'down_increment': 1
         }
-        with patch('boto3.client', return_value=mock_cloudwatch):
-            autoscaler.scale()
+        checks = [
+            ({'foo': 'up'}, '_scale_up'),
+            ({'foo': 'up', 'bar': 'down'}, '_scale_up'),
+            ({'foo': 'up', 'bar': None}, '_scale_up'),
+            ({}, None),
+            ({'foo': None, 'bar': None}, None),
+            ({'foo': 'down', 'bar': None}, None),
+            ({'foo': 'down', 'bar': 'down'}, '_scale_down')
+        ]
 
-        self.assertEquals(self.mock_controller._scale_up.call_count, 1)
-        self.assertEquals(autoscaler.pause_scaling.call_count, 1)
-
-    @patch.dict(os.environ, LAYER_LOAD_TEST_ENV)
-    def test_autoscale_up_scaling_paused(self):
-
-        autoscaler = self._create(type='LayerLoad')
-        autoscaler.scaling_paused = MagicMock(return_value=True)
-        autoscaler.pause_scaling = MagicMock()
-        mock_cloudwatch = MagicMock()
-        mock_cloudwatch.get_metric_statistics.return_value = {
-            'Datapoints': [{'Average': x} for x in [2.0, 2.5, 10.5]]
-        }
-        with patch('boto3.client', return_value=mock_cloudwatch):
-            autoscaler.scale()
-
-        self.assertEquals(self.mock_controller._scale_up.call_count, 0)
-        self.assertEquals(autoscaler.pause_scaling.call_count, 0)
-
-
-    @patch.dict(os.environ, LAYER_LOAD_TEST_ENV)
-    def test_autoscale_down(self):
-
-        autoscaler = self._create(type='LayerLoad')
-        mock_cloudwatch = MagicMock()
-        mock_cloudwatch.get_metric_statistics.return_value = {
-            'Datapoints': [{'Average': x} for x in [1.0, 1.5, 0.5]]
-        }
-        with patch('boto3.client', return_value=mock_cloudwatch):
-            self.mock_controller.dry_run = False
-            autoscaler.scale()
-
-        self.assertEquals(self.mock_controller._scale_down.call_count, 1)
+        for results, method in checks:
+            autoscaler = self._create(config=config)
+            autoscaler._scale_up_or_down(results)
+            if method is not None:
+                self.assertEquals(getattr(autoscaler.controller, method).call_count, 1)
+            else:
+                self.assertEquals(autoscaler.controller._scale_up.call_count, 0)
+                self.assertEquals(autoscaler.controller._scale_down.call_count, 0)
 

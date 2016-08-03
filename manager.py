@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os
 import sys
 import json
 import boto3
@@ -136,12 +137,26 @@ def down(controller, num_workers):
 
 
 @scale.command()
+@click.option('-c', '--config', envvar='AUTOSCALE_CONFIG',
+              help='json string or path to json file containing autoscale configuration')
 @click.pass_obj
 @handle_exit
 @log_before_after_stats
-def auto(controller):
+def auto(controller, config):
 
-    controller.scale('auto')
+    if config is None:
+        raise click.ClickException("No autoscale config provided")
+
+    try:
+        if os.path.isfile(config):
+            with open(config, 'r') as f:
+                config = json.load(f)
+        else:
+            config = json.loads(config)
+    except Exception, e:
+        raise click.BadParameter("Failed to parse autoscale config: %s" % str(e))
+
+    controller.autoscale(config)
 
 
 def init_logging(cluster, debug):

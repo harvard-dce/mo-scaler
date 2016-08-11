@@ -53,7 +53,7 @@ class Autoscaler(object):
 
     def tick_pause_cycles(self):
         remaining_cycles = self._read_pause_file() - 1
-        if remaining_cycles < 1:
+        if remaining_cycles < 1 and os.path.exists(self.pause_file):
             os.unlink(self.pause_file)
         else:
             self._write_pause_file(remaining_cycles)

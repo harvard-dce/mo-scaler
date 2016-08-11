@@ -51,7 +51,7 @@ class Autoscaler(object):
             LOGGER.info("Scaling ok")
             return False
 
-    def tick_pause_cycles(self):
+    def _tick_pause_cycles(self):
         remaining_cycles = self._read_pause_file() - 1
         if remaining_cycles < 1 and os.path.exists(self.pause_file):
             os.unlink(self.pause_file)
@@ -93,7 +93,6 @@ class Autoscaler(object):
             results[strategy['name']] = direction
 
         self._scale_up_or_down(results)
-        self.tick_pause_cycles()
 
     def _scale_up_or_down(self, results):
 
@@ -102,6 +101,8 @@ class Autoscaler(object):
             self.controller._scale_up(self.up_increment, scale_available=True)
             if self.pause_cycles:
                 self.pause_scaling(self.pause_cycles)
+            # return here to avoid ticking the pause cycle value
+            return
 
         # everyone has to agree to go down
         elif results and all(d == 'down' for d in results.values()):
@@ -113,6 +114,8 @@ class Autoscaler(object):
                     check_uptime=True,
                     scale_available=True
                 )
+
+        self._tick_pause_cycles()
 
     @property
     def cw(self):

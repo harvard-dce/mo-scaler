@@ -3,6 +3,7 @@ import os
 import boto3
 import logging
 from datetime import datetime, timedelta
+from operator import itemgetter
 from moscaler.exceptions import OpsworksScalingException
 
 LOGGER = logging.getLogger(__name__)
@@ -146,8 +147,8 @@ class Autoscaler(object):
                 'Name': 'LayerId',
                 'Value': self.controller.get_layer_id(layer_name)
             }
-            LOGGER.debug("Fetching %d datapoints for metric %s on layer '%s'",
-                         sample_count, metric, layer_name)
+            LOGGER.debug("Fetching recent datapoints for metric %s on layer '%s'",
+                         metric, layer_name)
 
         elif 'instance_name' in settings:
             instance_name = settings['instance_name']
@@ -155,14 +156,16 @@ class Autoscaler(object):
                 'Name': 'InstanceId',
                 'Value': self.controller.get_ec2_id(instance_name)
             }
-            LOGGER.debug("Fetching %d datapoints for metric %s on instance '%s'",
-                         sample_count, metric, instance_name)
+            LOGGER.debug("Fetching recent datapoints for metric %s on instance '%s'",
+                         metric, instance_name)
 
         else:
             raise AutoscaleException("strategy settings must specify one of "
                                      "'layer_name' or 'instance_name'")
 
-        start_time_seconds = sample_count * sample_period
+        # +2 * sample_period here to add some padding to the time window because there can be some
+        # amount of (unfortunate) delay in metric data availability
+        start_time_seconds = (sample_count + 2) * sample_period
         start_time = datetime.utcnow() - timedelta(seconds=start_time_seconds)
         end_time = datetime.utcnow()
 
@@ -176,7 +179,27 @@ class Autoscaler(object):
             Statistics=['Average']
         )
 
-        datapoints = [x['Average'] for x in resp['Datapoints']]
+        datapoints = sorted(resp['Datapoints'],
+                            key=itemgetter('Timestamp'),
+                            reverse=True
+                            )
+
+        if not datapoints:
+            LOGGER.error("No datapoints received for metric %s!", metric)
+            return
+
+        LOGGER.debug("Most recent datapoint is %d seconds old",
+                     (datetime.utcnow() - datapoints[0]['Timestamp'].replace(tzinfo=None)).seconds)
+
+        if len(datapoints) < sample_count:
+            LOGGER.error(
+                "Insufficient number of datapoints! Asked for at least %d but only got %d",
+                sample_count,
+                len(datapoints)
+            )
+            return
+
+        datapoints = [x['Average'] for x in datapoints[:sample_count]]
         LOGGER.debug("Datapoints for %s: %s", metric, datapoints)
 
         up_threshold += len(self.controller.online_workers) * up_threshold_online_workers_multiplier

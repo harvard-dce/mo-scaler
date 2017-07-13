@@ -83,6 +83,18 @@ Scale up one instance:
 Scale up *x* instances:
 `./managerpy scale up 3`
 
+**Note**: the mechanism for selecting which of the available, offline instances to start takes into
+account two things: 
+
+* whether the Opsworks instance already has an associated ec2 instance. Those that do are preferred as they
+  are faster to spin up.
+* the `InstanceType` attribute; beefier instances are preferred, with beefiness being measured by the 
+  product of the major/minor size numbers from the `InstanceType` string. The "beefiness" score of a 
+  `c4.4xlarge` instance would be 16. e.g. 
+  * `c4.xlarge` > `c3.xlarge`, 4 > 3
+  * `c4.8xlarge` > `c4.4xlarge`, 4 * 8 > 4 * 4 
+  * `c3.8xlarge` > `c4.4xlarge`, 3 * 8 > 4 * 4
+
 #### down
 
 Scale down one instance:

@@ -45,6 +45,7 @@ class TestOpsworksController(unittest.TestCase):
         self.controller = OpsworksController('test-stack')
 
     def _create_instance(self, inst_dict, wrap=False):
+        inst_dict.setdefault('InstanceType', 't2.medium')
         instance = OpsworksInstance(inst_dict, self.controller)
         if wrap:
             return MagicMock(wraps=instance)
@@ -362,4 +363,30 @@ class TestOpsworksController(unittest.TestCase):
                 [x.start.call_count for x in self.controller._instances]
         )
 
+    def test_scale_up_prefer_bigger_instances(self):
 
+        self.controller._instances = self._create_instances(
+            {'InstanceId': '1', 'Hostname': 'workers1', 'Status': 'stopped', 'InstanceType': 'c3.8xlarge'},
+            {'InstanceId': '2', 'Hostname': 'workers2', 'Status': 'stopped', 'InstanceType': 'c3.16xlarge'},
+            {'InstanceId': '3', 'Hostname': 'workers3', 'Status': 'stopped', 'InstanceType': 'c4.8xlarge'},
+            {'InstanceId': '4', 'Hostname': 'workers4', 'Status': 'stopped', 'InstanceType': 'c3.8xlarge'},
+            {'InstanceId': '5', 'Hostname': 'workers5', 'Status': 'stopped', 'InstanceType': 'c3.8xlarge'},
+            {'InstanceId': '5', 'Hostname': 'workers5', 'Status': 'stopped', 'InstanceType': 'c4.8xlarge'}
+        )
+        for inst in self.controller._instances:
+            inst.start = MagicMock()
+
+        self.controller._scale_up(1)
+        self.assertEqual(
+            [0,1,0,0,0,0],
+            [x.start.call_count for x in self.controller._instances]
+        )
+
+        for inst in self.controller._instances:
+            inst.start.reset_mock()
+
+        self.controller._scale_up(3)
+        self.assertEqual(
+            [0,1,1,0,0,1],
+            [x.start.call_count for x in self.controller._instances]
+        )

@@ -89,7 +89,6 @@ class TestOpsworksInstance(unittest.TestCase):
         with freeze_time('2015-11-12 15:32:09'):
             self.assertEqual(inst.billed_minutes(), 32)
 
-
     def test_start(self):
         inst = self._create({})
         inst.start()
@@ -101,3 +100,14 @@ class TestOpsworksInstance(unittest.TestCase):
         inst.stop()
         self.mock_controller.stop_instance.assert_called_once_with(inst)
         self.assertEqual(inst.action_taken, 'stopped')
+
+    def test_beefiness(self):
+        test_sizes = {
+            'c4.8xlarge': 32,
+            'm4.xlarge': 4,
+            'i3.16xlarge': 48,
+            't2.medium': 2
+        }
+        for inst_type, expected in test_sizes.items():
+            inst = self._create({'InstanceType': inst_type})
+            self.assertEqual(inst.beefiness(), expected)

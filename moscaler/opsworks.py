@@ -1,4 +1,5 @@
 
+import re
 import arrow
 import boto3
 import logging
@@ -198,7 +199,7 @@ class OpsworksController(object):
         # prefer instances that already have an associated ec2 instance
         start_candidates = sorted(
             self.stopped_workers,
-            key=attrgetter('ec2_inst'),
+            key=lambda x: (x.ec2_inst, x.beefiness()),
             reverse=True
         )
 
@@ -325,6 +326,15 @@ class OpsworksInstance(object):
             return self._inst[k]
         except KeyError:
             raise AttributeError(k)
+
+    def beefiness(self):
+        inst_type = self.InstanceType
+        major = int(inst_type.split('.')[0][-1])
+        try:
+            minor = int(re.search('\.(\d*)', inst_type).group(1))
+        except ValueError:
+            minor = 1
+        return major * minor
 
     @property
     def Ec2InstanceId(self):

@@ -199,7 +199,7 @@ class OpsworksController(object):
         # prefer instances that already have an associated ec2 instance
         start_candidates = sorted(
             self.stopped_workers,
-            key=lambda x: (x.ec2_inst, x.beefiness()),
+            key=lambda x: (x.has_ec2_instance(), x.beefiness()),
             reverse=True
         )
 
@@ -326,6 +326,9 @@ class OpsworksInstance(object):
             return self._inst[k]
         except KeyError:
             raise AttributeError(k)
+
+    def has_ec2_instance(self):
+        return self.ec2_inst is not None
 
     def beefiness(self):
         inst_type = self.InstanceType

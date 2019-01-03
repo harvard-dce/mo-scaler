@@ -1,36 +1,32 @@
-
 import pyhorn
-# this is a hack until pyhorn can get it's caching controls sorted out
-pyhorn.client._session._is_cache_disabled = True
 
 import logging
-from stopit import SignalTimeout, \
-    TimeoutException as StopitTimeout
-from requests.exceptions import \
-    Timeout as RequestsTimeout, \
-    ConnectionError
+from stopit import SignalTimeout, TimeoutException as StopitTimeout
+from requests.exceptions import Timeout as RequestsTimeout, ConnectionError
 
 from contextlib import contextmanager
 from os import getenv as env
 from moscaler.exceptions import MatterhornCommunicationException
 
+# this is a hack until pyhorn can get it's caching controls sorted out
+pyhorn.client._session._is_cache_disabled = True
+
 LOGGER = logging.getLogger(__name__)
 
 PYHORN_TIMEOUT = 30
-URI_SCHEME = 'http'
+URI_SCHEME = "http"
 HIGH_LOAD_JOB_TYPES = ["compose", "editor", "inspect", "video-segment"]
 
 
 class MatterhornController(object):
-
     def __init__(self, host):
 
         self.mh_url = "%s://%s" % (URI_SCHEME, host)
         self.client = pyhorn.MHClient(
             self.mh_url,
-            user=env('MATTERHORN_USER'),
-            passwd=env('MATTERHORN_PASS'),
-            timeout=env('PYHORN_TIMEOUT', PYHORN_TIMEOUT)
+            user=env("MATTERHORN_USER"),
+            passwd=env("MATTERHORN_PASS"),
+            timeout=env("PYHORN_TIMEOUT", PYHORN_TIMEOUT),
         )
 
         try:
@@ -65,13 +61,13 @@ class MatterhornController(object):
 
     def job_status(self):
         status = {
-            'queued_jobs': self.queued_job_count(),
-            'queued_jobs_high_load': self.queued_high_load_job_count()
+            "queued_jobs": self.queued_job_count(),
+            "queued_jobs_high_load": self.queued_high_load_job_count(),
         }
         if self.is_online():
-            status['running_jobs'] = self._stats.running_jobs()
+            status["running_jobs"] = self._stats.running_jobs()
         else:
-            status['running_jobs'] = 0
+            status["running_jobs"] = 0
 
         return status
 
@@ -79,9 +75,9 @@ class MatterhornController(object):
         if not inst.is_online():
             return {"registered": None, "maintenance": None, "idle": None}
         return {
-            'registered': self.is_registered(inst),
-            'maintenance': self.is_in_maintenance(inst),
-            'idle': self.is_idle(inst)
+            "registered": self.is_registered(inst),
+            "maintenance": self.is_in_maintenance(inst),
+            "idle": self.is_idle(inst),
         }
 
     def queued_high_load_job_count(self):
@@ -99,8 +95,7 @@ class MatterhornController(object):
         running_ops = []
         for wkf in running_wfs:
             running_ops.extend(
-                [x for x in wkf.operations
-                 if x.state in ['RUNNING', 'WAITING']]
+                [x for x in wkf.operations if x.state in ["RUNNING", "WAITING"]]
             )
 
         # filter for the operation types we're interested in
@@ -110,23 +105,18 @@ class MatterhornController(object):
         # now get any queued child jobs of those operations
         queued_jobs = []
         for opr in running_ops:
-            queued_jobs.extend(
-                [x for x in opr.job.children if x.status == 'QUEUED']
-            )
+            queued_jobs.extend([x for x in opr.job.children if x.status == "QUEUED"])
 
         return len(queued_jobs)
 
     def is_registered(self, inst):
         registered_hosts = [x.base_url for x in self._hosts]
-        return hasattr(inst, 'mh_host_url') and \
-               inst.mh_host_url in registered_hosts
+        return hasattr(inst, "mh_host_url") and inst.mh_host_url in registered_hosts
 
     def get_host(self, inst):
 
         try:
-            return next(x for x in self._hosts
-                        if x.base_url == inst.mh_host_url
-                        )
+            return next(x for x in self._hosts if x.base_url == inst.mh_host_url)
         except StopIteration:
             return None
 
@@ -161,10 +151,11 @@ class MatterhornController(object):
         LOGGER.debug("Ensuring workers in maintenance")
 
         # only deal with nodes that are not already in maintenance
-        for_maintenance = [x for x in instances
-                           if self.is_registered(x)
-                           and not self.is_in_maintenance(x)
-                           ]
+        for_maintenance = [
+            x
+            for x in instances
+            if self.is_registered(x) and not self.is_in_maintenance(x)
+        ]
 
         if not len(for_maintenance):
             # don't do anything
@@ -181,17 +172,16 @@ class MatterhornController(object):
                 LOGGER.debug(
                     "Exception caught during 'in_maintenance' context: %s, %s",
                     type(exc),
-                    str(exc)
+                    str(exc),
                 )
                 raise
             finally:
                 if restore_state:
                     LOGGER.debug("Restoring maintenance state")
                     for inst in for_maintenance:
-                        if inst.action_taken == 'stopped':
+                        if inst.action_taken == "stopped":
                             LOGGER.debug(
-                                "Not unsetting maintenance for stopped: %r",
-                                inst
+                                "Not unsetting maintenance for stopped: %r", inst
                             )
                         else:
                             LOGGER.debug("Disabling maintenance for %r", inst)

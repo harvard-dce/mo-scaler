@@ -1,0 +1,14 @@
+boto3
+click
+pyhorn
+pyloggly
+python-dotenv
+stopit
+Unipath
+requests[security]
+nose
+coverage
+mock
+freezegun
+tabulate
+arrow

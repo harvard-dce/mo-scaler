@@ -36,7 +36,6 @@ def handle_exit(cmd):
         except OpsworksControllerException as exc:
             LOGGER.info(str(exc))
             return 1
-#            return str(exc)
     return exit_wrapper
 
 
@@ -138,7 +137,8 @@ def down(controller, num_workers):
 
 @scale.command()
 @click.option('-c', '--config', envvar='AUTOSCALE_CONFIG',
-              help='json string or path to json file containing autoscale configuration')
+              help=('json string or path to json file '
+                    'containing autoscale configuration'))
 @click.pass_obj
 @handle_exit
 @log_before_after_stats
@@ -153,8 +153,9 @@ def auto(controller, config):
                 config = json.load(f)
         else:
             config = json.loads(config)
-    except Exception, e:
-        raise click.BadParameter("Failed to parse autoscale config: %s" % str(e))
+    except Exception as e:
+        raise click.BadParameter(
+            "Failed to parse autoscale config: %s" % str(e))
 
     controller.autoscale(config)
 
@@ -232,7 +233,7 @@ def action_summary(actions):
 
 def print_status(status, format='table'):
     if format == 'json':
-        print json.dumps(status, indent=2)
+        print(json.dumps(status, indent=2))
     elif format == 'table':
         cluster = [
             ['Name', status['cluster']],
@@ -243,7 +244,7 @@ def print_status(status, format='table'):
             ['Running Jobs', status['job_status']['running_jobs']],
             ['Queued High Load Jobs', status['job_status']['queued_jobs_high_load']],
         ]
-        print tabulate(cluster)
+        print(tabulate(cluster))
         instance_headers = [
             'Opsworks Id',
             'Ec2 Id',
@@ -270,7 +271,7 @@ def print_status(status, format='table'):
                 x['mh_host_url']
             ] for x in status['worker_details']
         ]
-        print tabulate(instances, headers=instance_headers)
+        print(tabulate(instances, headers=instance_headers))
 
 
 if __name__ == "__main__":

@@ -181,7 +181,7 @@ class OpsworksController(object):
         try:
             LOGGER.info("Executing autoscaler")
             autoscaler.execute()
-        except Exception, e:
+        except Exception as e:
             raise OpsworksScalingException(
                 "Autoscale aborted: %s" % str(e)
             )
@@ -270,7 +270,7 @@ class OpsworksController(object):
         # action got wedged
         return sorted(
             instances,
-            key=methodcaller('uptime'),
+            key=lambda x: x.uptime() or 0, #methodcaller('uptime') || "",
             reverse=True)
 
     def _filter_by_billing_hour(self, instances, uptime_threshold=None):
@@ -358,7 +358,7 @@ class OpsworksInstance(object):
         return (now - launch_time).seconds
 
     def billed_minutes(self):
-        return (self.uptime() / 60) % 60
+        return int((self.uptime() / 60) % 60)
 
     def is_autoscale(self):
         return hasattr(self, 'AutoScalingType')

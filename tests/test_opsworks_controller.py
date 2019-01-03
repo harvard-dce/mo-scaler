@@ -214,7 +214,7 @@ class TestOpsworksController(unittest.TestCase):
 
         instances[0]._mock_wraps.ec2_inst = MagicMock(launch_time=datetime(2015, 11, 13, 10, 45, 0))
         instances[1]._mock_wraps.ec2_inst = MagicMock(launch_time=datetime(2015, 11, 13, 10, 20, 0))
-        instances[2]._mock_wraps.ec2_inst = MagicMock(launch_time=datetime(2015, 11, 13, 10, 04, 0))
+        instances[2]._mock_wraps.ec2_inst = MagicMock(launch_time=datetime(2015, 11, 13, 10, 4, 0))
         instances[3]._mock_wraps.ec2_inst = None
 
         self.controller._instances = instances

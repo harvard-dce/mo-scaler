@@ -72,7 +72,7 @@ class Autoscaler(object):
 
     def _write_pause_file(self, cycles):
         with open(self.pause_file, 'wb') as f:
-            f.write(str(cycles))
+            f.write(str(cycles).encode('utf-8'))
 
     def execute(self):
 
@@ -137,9 +137,11 @@ class Autoscaler(object):
             down_threshold = settings.get('down_threshold')
             sample_count = settings.get('sample_count', 3)
             sample_period = settings.get('sample_period', 60)
-            up_threshold_online_workers_multiplier = settings.get('up_threshold_online_workers_multiplier', 0)
-        except KeyError, e:
-            raise AutoscaleException("Invalid settings for metric autoscaling: %s" % str(e))
+            up_threshold_online_workers_multiplier = \
+                settings.get('up_threshold_online_workers_multiplier', 0)
+        except KeyError as e:
+            raise AutoscaleException(
+                "Invalid settings for metric autoscaling: %s" % str(e))
 
         if 'layer_name' in settings:
             layer_name = settings['layer_name']
@@ -147,7 +149,8 @@ class Autoscaler(object):
                 'Name': 'LayerId',
                 'Value': self.controller.get_layer_id(layer_name)
             }
-            LOGGER.debug("Fetching recent datapoints for metric %s on layer '%s'",
+            LOGGER.debug(
+                "Fetching recent datapoints for metric %s on layer '%s'",
                          metric, layer_name)
 
         elif 'instance_name' in settings:
@@ -156,15 +159,17 @@ class Autoscaler(object):
                 'Name': 'InstanceId',
                 'Value': self.controller.get_ec2_id(instance_name)
             }
-            LOGGER.debug("Fetching recent datapoints for metric %s on instance '%s'",
+            LOGGER.debug(
+                "Fetching recent datapoints for metric %s on instance '%s'",
                          metric, instance_name)
 
         else:
             raise AutoscaleException("strategy settings must specify one of "
                                      "'layer_name' or 'instance_name'")
 
-        # +2 * sample_period here to add some padding to the time window because there can be some
-        # amount of (unfortunate) delay in metric data availability
+        # +2 * sample_period here to add some padding to the time window
+        # because there can be some amount of (unfortunate) delay in
+        # metric data availability
         start_time_seconds = (sample_count + 2) * sample_period
         start_time = datetime.utcnow() - timedelta(seconds=start_time_seconds)
         end_time = datetime.utcnow()
@@ -221,8 +226,9 @@ class Autoscaler(object):
             up_threshold = settings['up_threshold']
             down_threshold = settings['down_threshold']
             operation_types = settings.get('operation_types')
-        except KeyError, e:
-            raise AutoscaleException("Invalid settings for queued_jobs autoscaling: %s" % str(e))
+        except KeyError as e:
+            raise AutoscaleException(
+                "Invalid settings for queued_jobs autoscaling: %s" % str(e))
 
         if operation_types is not None:
             LOGGER.debug("Checking for queued jobs of types: %s", str(operation_types))

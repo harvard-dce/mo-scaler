@@ -8,9 +8,12 @@ Matterhorn + Opsworks + Horizontal Scaling == MOrizontal Scaling!
 
 ## Getting started
 
+Tested with python v3.6/v2.7
+
 1. Git clone this repo and cd into it.
-1. Create a virtual environement: `virtualenv venv && source venv/bin/activate` (optional but recommended)
-1. Install the requirements: `pip install -r requirements.txt`
+1. Create a virtual environement: `virtualenv venv && source venv/bin/activate`
+1. Install pip-tools: `pip install pip-tools`
+1. Install the requirements: `pip-sync`
 1. Create a `.env` file: `cp .env.dist .env`. See **Settings** below for required values.
 
 ## Usage

@@ -167,9 +167,16 @@ class Autoscaler(object):
             )
 
         else:
-            raise AutoscaleException(
-                "strategy settings must specify one of "
-                "'layer_name' or 'instance_name'"
+            # assume this is a stack metric
+            stack_id = self.controller.stack["StackId"]
+            dimensions = {
+                "Name": "StackId",
+                "Value": stack_id
+            }
+            LOGGER.debug(
+                "Fetching recent datapoints for metric %s on stack '%s'",
+                metric,
+                stack_id,
             )
 
         # +2 * sample_period here to add some padding to the time window

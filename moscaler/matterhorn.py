@@ -72,10 +72,12 @@ class MatterhornController(object):
         return status
 
     def node_status(self, inst):
-        if not inst.is_online():
-            return {"registered": None, "maintenance": None, "idle": None}
+        online = inst.is_online()
+        registered = self.is_registered(inst)
+        if not online or not registered:
+            return {"registered": registered, "maintenance": None, "idle": None}
         return {
-            "registered": self.is_registered(inst),
+            "registered": registered,
             "maintenance": self.is_in_maintenance(inst),
             "idle": self.is_idle(inst),
         }
@@ -118,6 +120,7 @@ class MatterhornController(object):
         try:
             return next(x for x in self._hosts if x.base_url == inst.mh_host_url)
         except StopIteration:
+            LOGGER.warn("Tried to get an unregistered host: {}".format(inst.mh_host_url))
             return None
 
     def is_idle(self, inst):

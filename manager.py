@@ -197,16 +197,6 @@ def init_logging(cluster, debug):
         "formatters": {"basic": {"format": format}},
     }
 
-    if env("LOGGLY_TOKEN"):
-        config["loggers"]["moscaler"]["handlers"].append("loggly")
-        config["handlers"]["loggly"] = {
-            "class": "pyloggly.LogglyHandler",
-            "level": level,
-            "token": env("LOGGLY_TOKEN"),
-            "host": "logs-01.loggly.com",
-            "tags": "mo-scaler,%s" % cluster.replace(" ", "-"),
-        }
-
     logging.config.dictConfig(config)
 
 

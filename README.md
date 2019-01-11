@@ -56,7 +56,6 @@ The user/pass combo for the matterhorn system account.
 
 * `CLUSTER_NAME` - Name of the opsworks cluster to operate on
 * `AWS_PROFILE` - Use a specific AWS credentials profile. Note that this will not override an existing `$AWS_PROFILE`  in your environment.
-* `LOGGLY_TOKEN` - send log events to loggly
 * `AWS_DEFAULT_PROFILE` - this should only be necessary in an environment relying on AWS instance profile authentication
 
 ### Other settings of note
@@ -244,11 +243,6 @@ of it's billed hour" is 50 by default but can be overridden by setting
 
 All log output is directed to stdout with warnings and errors also going
 to stderr.
-
-If a `$LOGGLY_TOKEN` env value is available the program will
-add an additional log output handler to send events to loggly. 
-Events will can be identified by both the 'mo-scaler' tag and
-a tag corresponding to the cluster prefix.
 
 ### Before/After status events
 

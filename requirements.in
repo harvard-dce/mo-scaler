@@ -1,7 +1,6 @@
 boto3
 click
 pyhorn
-pyloggly
 python-dotenv
 stopit
 Unipath

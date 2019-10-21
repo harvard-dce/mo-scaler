@@ -34,4 +34,4 @@ six==1.12.0               # via cryptography, freezegun, mock, pyhorn, pyopenssl
 stopit==1.1.2
 tabulate==0.8.2
 unipath==1.1
-urllib3==1.24.1           # via botocore
+urllib3==1.24.2           # via botocore

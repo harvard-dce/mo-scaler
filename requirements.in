@@ -4,7 +4,7 @@ pyhorn
 python-dotenv
 stopit
 Unipath
-requests[security]
+requests
 nose
 coverage
 mock

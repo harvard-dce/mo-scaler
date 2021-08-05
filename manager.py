@@ -82,7 +82,7 @@ def cli(ctx, cluster, profile, debug, force, dry_run):
     ctx.obj = OpsworksController(cluster, force, dry_run)
 
 
-@cli.resultcallback()
+@cli.result_callback()
 def exit_with_code(result, *args, **kwargs):
     exit_code = result
     sys.exit(exit_code)

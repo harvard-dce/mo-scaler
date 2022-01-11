@@ -31,7 +31,11 @@ class OpsworksController(object):
         ]
 
         try:
-            mh_admin = next(x for x in instances if x["Hostname"].startswith("admin"))
+            mh_admin = next(
+                x
+                for x in instances
+                if x["Hostname"].startswith("admin") and "PublicDns" in x
+            )
         except StopIteration:
             raise OpsworksControllerException("No admin node found")
 
@@ -358,7 +362,7 @@ class OpsworksInstance(object):
         return hasattr(self, "AutoScalingType")
 
     def is_admin(self):
-        return self.Hostname.startswith("admin")
+        return self.Hostname.startswith("admin") and "PublicDns" in self._inst
 
     def is_worker(self):
         return self.Hostname.startswith("worker")

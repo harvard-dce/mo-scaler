@@ -43,8 +43,12 @@ class TestOpsworksInstance(unittest.TestCase):
 
     def test_is_admin(self):
 
-        self.assertTrue(self._create({"Hostname": "admin"}).is_admin())
-        self.assertTrue(self._create({"Hostname": "admin99"}).is_admin())
+        self.assertTrue(
+            self._create({"Hostname": "admin", "PublicDns": "foo.bar.baz"}).is_admin()
+        )
+        self.assertTrue(
+            self._create({"Hostname": "admin99", "PublicDns": "foo.bar.baz"}).is_admin()
+        )
         self.assertFalse(self._create({"Hostname": "99admin"}).is_admin())
         self.assertFalse(self._create({"Hostname": "worker"}).is_admin())
 

@@ -101,7 +101,7 @@ class TestOpsworksController(unittest.TestCase):
         self.controller._instances = self._create_instances(
             {"InstanceId": 1, "Hostname": "workers1"},
             {"InstanceId": 2, "Hostname": "engage1"},
-            {"InstanceId": 3, "Hostname": "admin1"},
+            {"InstanceId": 3, "Hostname": "admin1", "PublicDns": "foo.bar.baz"},
         )
         self.assertEqual(self.controller.admin.InstanceId, 3)
 

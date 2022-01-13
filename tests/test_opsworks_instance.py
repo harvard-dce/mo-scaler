@@ -1,6 +1,6 @@
 import unittest
 from datetime import datetime
-from mock import MagicMock
+from mock import MagicMock, patch
 from freezegun import freeze_time
 
 from moscaler.opsworks import OpsworksInstance, OpsworksController
@@ -54,10 +54,19 @@ class TestOpsworksInstance(unittest.TestCase):
 
     def test_is_worker(self):
 
-        self.assertTrue(self._create({"Hostname": "worker"}).is_worker())
-        self.assertTrue(self._create({"Hostname": "worker1"}).is_worker())
-        self.assertFalse(self._create({"Hostname": "99worker"}).is_worker())
-        self.assertFalse(self._create({"Hostname": "admin"}).is_worker())
+        with patch.object(self.mock_controller, "get_layer_id") as get_layer_id:
+            get_layer_id.return_value = "foo"
+            self.assertTrue(
+                self._create({"Hostname": "worker", "LayerIds": ["foo"]}).is_worker()
+            )
+            self.assertTrue(
+                self._create({"Hostname": "worker1", "LayerIds": ["foo"]}).is_worker()
+            )
+            self.assertFalse(
+                self._create({"Hostname": "worker1", "LayerIds": ["bar"]}).is_worker()
+            )
+            self.assertFalse(self._create({"Hostname": "99worker"}).is_worker())
+            self.assertFalse(self._create({"Hostname": "admin"}).is_worker())
 
     def test_is_online(self):
 

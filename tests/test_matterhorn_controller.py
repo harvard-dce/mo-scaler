@@ -1,4 +1,5 @@
 import unittest
+import os
 from mock import patch, Mock, MagicMock
 from requests.exceptions import Timeout
 
@@ -16,11 +17,14 @@ class TestMatterhornController(unittest.TestCase):
         with patch(
             "moscaler.matterhorn.pyhorn.MHClient", spec_set=MHClient
         ) as mock_pyhorn:
-            controller = MatterhornController("mh.example.edu")
-            mock_pyhorn.assert_called_once_with(
-                "http://mh.example.edu", user=None, passwd=None, timeout=30
-            )
-            self.assertTrue(controller.is_online())
+            with patch.dict(
+                os.environ, {"MATTERHORN_USER": "foo", "MATTERHORN_PASS": "bar"}
+            ):
+                controller = MatterhornController("mh.example.edu")
+                mock_pyhorn.assert_called_once_with(
+                    "http://mh.example.edu", user="foo", passwd="bar", timeout=30
+                )
+                self.assertTrue(controller.is_online())
 
     def test_constructor_connect_error(self):
 

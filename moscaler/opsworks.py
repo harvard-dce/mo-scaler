@@ -30,6 +30,9 @@ class OpsworksController(object):
             "Instances"
         ]
 
+        layers = self.opsworks.describe_layers(StackId=self.stack["StackId"])["Layers"]
+        self._layers = {x["Name"]: x["LayerId"] for x in layers}
+
         try:
             mh_admin = next(
                 x
@@ -85,12 +88,9 @@ class OpsworksController(object):
             raise OpsworksControllerException("No admin node found")
 
     def get_layer_id(self, layer_name):
-        layers = self.opsworks.describe_layers(StackId=self.stack["StackId"])["Layers"]
-        try:
-            layer = next(x for x in layers if x["Name"] == layer_name)
-            return layer["LayerId"]
-        except StopIteration:
+        if layer_name not in self._layers:
             raise OpsworksControllerException("Could not find layer '%s'" % layer_name)
+        return self._layers[layer_name]
 
     def get_ec2_id(self, instance_name):
         return next(
@@ -365,7 +365,8 @@ class OpsworksInstance(object):
         return self.Hostname.startswith("admin") and "PublicDns" in self._inst
 
     def is_worker(self):
-        return self.Hostname.startswith("worker")
+        worker_layer_id = self.controller.get_layer_id("Workers")
+        return self.Hostname.startswith("worker") and worker_layer_id in self.LayerIds
 
     def is_online(self):
         return self.Status == "online"

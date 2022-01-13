@@ -19,6 +19,12 @@ class TestOpsworksController(unittest.TestCase):
         mock_opsworks.describe_stacks.return_value = {
             "Stacks": [{"StackId": "abcd1234", "Name": "test-stack"}]
         }
+        mock_opsworks.describe_layers.return_value = {
+            "Layers": [
+                {"Name": "Admin", "LayerId": "1234-abcd"},
+                {"Name": "Workers", "LayerId": "5678-efgh"},
+            ]
+        }
         # must provide an 'admin' instance for mh controller creation
         mock_opsworks.describe_instances.return_value = {
             "Instances": [
@@ -51,6 +57,18 @@ class TestOpsworksController(unittest.TestCase):
     def _create_instances(self, *inst_dicts, **kwargs):
         return [self._create_instance(x, **kwargs) for x in inst_dicts]
 
+    def _create_workers(self, *inst_dicts, **kwargs):
+        for d in inst_dicts:
+            d["LayerIds"] = ["5678-efgh"]
+        return self._create_instances(*inst_dicts, **kwargs)
+
+    def test_get_layer_id(self):
+        self.assertEqual(self.controller.get_layer_id("Admin"), "1234-abcd")
+        self.assertEqual(self.controller.get_layer_id("Workers"), "5678-efgh")
+        self.assertRaises(
+            OpsworksControllerException, self.controller.get_layer_id, "Foobar"
+        )
+
     def test_instances(self):
 
         self.controller._instances = self._create_instances(
@@ -63,10 +81,10 @@ class TestOpsworksController(unittest.TestCase):
     def test_workers(self):
 
         self.controller._instances = self._create_instances(
-            {"InstanceId": 1, "Hostname": "workers1"},
-            {"InstanceId": 2, "Hostname": "workers2"},
+            {"InstanceId": 1, "Hostname": "workers1", "LayerIds": ["5678-efgh"]},
+            {"InstanceId": 2, "Hostname": "workers2", "LayerIds": ["5678-efgh"]},
             {"InstanceId": 3, "Hostname": "engage1"},
-            {"InstanceId": 4, "Hostname": "workers3"},
+            {"InstanceId": 4, "Hostname": "workers3", "LayerIds": ["5678-efgh"]},
             {"InstanceId": 5, "Hostname": "admin1"},
         )
         self.assertEqual([1, 2, 4], [x.InstanceId for x in self.controller.workers])
@@ -74,9 +92,24 @@ class TestOpsworksController(unittest.TestCase):
     def test_online_workers(self):
         self.controller._instances = self._create_instances(
             {"InstanceId": 1, "Hostname": "storage1"},
-            {"InstanceId": 2, "Hostname": "workers1", "Status": "stopped"},
-            {"InstanceId": 3, "Hostname": "workers2", "Status": "online"},
-            {"InstanceId": 4, "Hostname": "workers3", "Status": "online"},
+            {
+                "InstanceId": 2,
+                "Hostname": "workers1",
+                "Status": "stopped",
+                "LayerIds": ["5678-efgh"],
+            },
+            {
+                "InstanceId": 3,
+                "Hostname": "workers2",
+                "Status": "online",
+                "LayerIds": ["5678-efgh"],
+            },
+            {
+                "InstanceId": 4,
+                "Hostname": "workers3",
+                "Status": "online",
+                "LayerIds": ["5678-efgh"],
+            },
             {"InstanceId": 5, "Hostname": "admin1"},
         )
         self.assertEqual([3, 4], [x.InstanceId for x in self.controller.online_workers])
@@ -85,12 +118,32 @@ class TestOpsworksController(unittest.TestCase):
 
         self.controller._instances = self._create_instances(
             {"InstanceId": 1, "Hostname": "storage1", "Status": "online"},
-            {"InstanceId": 2, "Hostname": "workers1", "Status": "booting"},
-            {"InstanceId": 3, "Hostname": "workers2", "Status": "online"},
-            {"InstanceId": 4, "Hostname": "workers3", "Status": "stopping"},
+            {
+                "InstanceId": 2,
+                "Hostname": "workers1",
+                "Status": "booting",
+                "LayerIds": ["5678-efgh"],
+            },
+            {
+                "InstanceId": 3,
+                "Hostname": "workers2",
+                "Status": "online",
+                "LayerIds": ["5678-efgh"],
+            },
+            {
+                "InstanceId": 4,
+                "Hostname": "workers3",
+                "Status": "stopping",
+                "LayerIds": ["5678-efgh"],
+            },
             {"InstanceId": 5, "Hostname": "admin1", "Status": "online"},
             {"InstanceId": 6, "Hostname": "engage1", "Status": "pending"},
-            {"InstanceId": 7, "Hostname": "workers4", "Status": "pending"},
+            {
+                "InstanceId": 7,
+                "Hostname": "workers4",
+                "Status": "pending",
+                "LayerIds": ["5678-efgh"],
+            },
         )
         self.assertEqual(
             [2, 7], [x.InstanceId for x in self.controller.pending_workers]
@@ -99,7 +152,7 @@ class TestOpsworksController(unittest.TestCase):
     def test_admin(self):
 
         self.controller._instances = self._create_instances(
-            {"InstanceId": 1, "Hostname": "workers1"},
+            {"InstanceId": 1, "Hostname": "workers1", "LayerIds": ["5678-efgh"]},
             {"InstanceId": 2, "Hostname": "engage1"},
             {"InstanceId": 3, "Hostname": "admin1", "PublicDns": "foo.bar.baz"},
         )
@@ -108,9 +161,9 @@ class TestOpsworksController(unittest.TestCase):
     def test_no_admin(self):
 
         self.controller._instances = self._create_instances(
-            {"InstanceId": 1, "Hostname": "workers1"},
+            {"InstanceId": 1, "Hostname": "workers1", "LayerIds": ["5678-efgh"]},
             {"InstanceId": 2, "Hostname": "engage1"},
-            {"InstanceId": 3, "Hostname": "workers2"},
+            {"InstanceId": 3, "Hostname": "workers2", "LayerIds": ["5678-efgh"]},
         )
 
         self.assertRaises(
@@ -119,7 +172,7 @@ class TestOpsworksController(unittest.TestCase):
 
     def test_scale_to(self):
 
-        self.controller._instances = self._create_instances(
+        self.controller._instances = self._create_workers(
             {"Hostname": "workers1", "Status": "online"},
             {"Hostname": "workers2", "Status": "online"},
             {"Hostname": "workers3", "Status": "online"},
@@ -138,7 +191,7 @@ class TestOpsworksController(unittest.TestCase):
 
     def test_scale_down_not_enough_workers(self):
 
-        self.controller._instances = self._create_instances(
+        self.controller._instances = self._create_workers(
             {"Hostname": "workers1", "Status": "online"},
             {"Hostname": "workers2", "Status": "online"},
             {"Hostname": "workers3", "Status": "running_setup"},
@@ -154,7 +207,7 @@ class TestOpsworksController(unittest.TestCase):
     @patch.dict(os.environ, {"MOSCALER_MIN_WORKERS": "3"})
     def test_scale_down_min_workers(self):
 
-        self.controller._instances = self._create_instances(
+        self.controller._instances = self._create_workers(
             {"Hostname": "workers1", "Status": "online"},
             {"Hostname": "workers2", "Status": "online"},
             {"Hostname": "workers3", "Status": "online"},
@@ -170,7 +223,7 @@ class TestOpsworksController(unittest.TestCase):
 
     def test_scale_down(self):
 
-        self.controller._instances = self._create_instances(
+        self.controller._instances = self._create_workers(
             {"InstanceId": "1", "Hostname": "workers1", "Status": "online"},
             {"InstanceId": "2", "Hostname": "workers2", "Status": "online"},
             {"InstanceId": "3", "Hostname": "workers3", "Status": "online"},
@@ -186,7 +239,7 @@ class TestOpsworksController(unittest.TestCase):
 
     def test_workers_to_stop_uptime_check(self):
 
-        instances = self._create_instances(
+        instances = self._create_workers(
             {"InstanceId": "1", "Hostname": "workers1", "Status": "online"},
             {"InstanceId": "2", "Hostname": "workers2", "Status": "online"},
             {"InstanceId": "3", "Hostname": "workers3", "Status": "online"},
@@ -227,7 +280,7 @@ class TestOpsworksController(unittest.TestCase):
 
     def test_get_workers_to_stop_force(self):
 
-        instances = self._create_instances(
+        instances = self._create_workers(
             {"InstanceId": "1", "Hostname": "workers1", "Status": "online"},
             {"InstanceId": "2", "Hostname": "workers2", "Status": "online"},
             {"InstanceId": "3", "Hostname": "workers3", "Status": "stopped"},
@@ -243,7 +296,7 @@ class TestOpsworksController(unittest.TestCase):
 
     def test_scale_down_no_idle_workers(self):
 
-        instances = self._create_instances(
+        instances = self._create_workers(
             {"InstanceId": "1", "Hostname": "workers1", "Status": "online"},
             {"InstanceId": "2", "Hostname": "workers2", "Status": "online"},
             {"InstanceId": "3", "Hostname": "workers3", "Status": "online"},
@@ -263,7 +316,7 @@ class TestOpsworksController(unittest.TestCase):
 
     def test_scale_down_available_workers(self):
 
-        instances = self._create_instances(
+        instances = self._create_workers(
             {"InstanceId": "1", "Hostname": "workers1", "Status": "online"},
             {"InstanceId": "2", "Hostname": "workers2", "Status": "stopped"},
             {"InstanceId": "3", "Hostname": "workers3", "Status": "online"},
@@ -292,7 +345,7 @@ class TestOpsworksController(unittest.TestCase):
 
     def test_sort_by_uptime(self):
 
-        instances = self._create_instances(
+        instances = self._create_workers(
             {"InstanceId": "1", "Hostname": "workers1", "Status": "online"},
             {"InstanceId": "2", "Hostname": "workers2", "Status": "online"},
             {"InstanceId": "3", "Hostname": "workers3", "Status": "online"},
@@ -323,7 +376,7 @@ class TestOpsworksController(unittest.TestCase):
 
     def test_scale_up(self):
 
-        self.controller._instances = self._create_instances(
+        self.controller._instances = self._create_workers(
             {"InstanceId": "1", "Hostname": "workers1", "Status": "online"},
             {"InstanceId": "2", "Hostname": "workers2", "Status": "online"},
             {"InstanceId": "3", "Hostname": "workers3", "Status": "stopped"},
@@ -338,7 +391,7 @@ class TestOpsworksController(unittest.TestCase):
 
     def test_scale_up_not_enough_workers(self):
 
-        self.controller._instances = self._create_instances(
+        self.controller._instances = self._create_workers(
             {"InstanceId": "1", "Hostname": "workers1", "Status": "online"},
             {"InstanceId": "2", "Hostname": "workers2", "Status": "online"},
             {"InstanceId": "3", "Hostname": "workers3", "Status": "stopped"},
@@ -359,7 +412,7 @@ class TestOpsworksController(unittest.TestCase):
 
     def test_scale_up_prefer_bigger_instances(self):
 
-        self.controller._instances = self._create_instances(
+        self.controller._instances = self._create_workers(
             {
                 "InstanceId": "1",
                 "Hostname": "workers1",

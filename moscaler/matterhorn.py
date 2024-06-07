@@ -1,6 +1,7 @@
 import pyhorn
 
 import logging
+import requests
 from stopit import SignalTimeout, TimeoutException as StopitTimeout
 from requests.exceptions import Timeout as RequestsTimeout, ConnectionError
 
@@ -15,7 +16,18 @@ LOGGER = logging.getLogger(__name__)
 
 PYHORN_TIMEOUT = 30
 URI_SCHEME = "http"
-HIGH_LOAD_JOB_TYPES = ["compose", "editor", "inspect", "video-segment"]
+HIGH_LOAD_JOB_TYPES = [
+    "autotrim", 
+    "composite", 
+    "concat", 
+    "demux", 
+    "editor", 
+    "encode", 
+    "inspect", 
+    "multiencode", 
+    "process-smil", 
+    "segment-video"
+]
 
 
 class MatterhornController(object):
@@ -90,26 +102,15 @@ class MatterhornController(object):
         if not self.is_online():
             return 0
 
-        # get the running workflows; high "count" value to make sure we get all
-        running_wfs = self.client.workflows(state="RUNNING", count=1000)
-
-        # then get their running operations
-        running_ops = []
-        for wkf in running_wfs:
-            running_ops.extend(
-                [x for x in wkf.operations if x.state in ["RUNNING", "WAITING"]]
+        queued_jobs_count_url = f"{self.mh_url}/workflow/queuedJobCount"
+        resp = requests.get(queued_jobs_count_url)
+        if resp.status_code != 200:
+            LOGGER.error(
+                "Error getting queued job count from Matterhorn: %s", resp.text
             )
+            return 0
 
-        # filter for the operation types we're interested in
-        if operation_types is not None:
-            running_ops = [x for x in running_ops if x.id in operation_types]
-
-        # now get any queued child jobs of those operations
-        queued_jobs = []
-        for opr in running_ops:
-            queued_jobs.extend([x for x in opr.job.children if x.status == "QUEUED"])
-
-        return len(queued_jobs)
+        return int(resp.text)
 
     def is_registered(self, inst):
         registered_hosts = [x.base_url for x in self._hosts]

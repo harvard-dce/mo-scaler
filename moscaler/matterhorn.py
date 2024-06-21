@@ -17,16 +17,16 @@ LOGGER = logging.getLogger(__name__)
 PYHORN_TIMEOUT = 30
 URI_SCHEME = "http"
 HIGH_LOAD_JOB_TYPES = [
-    "autotrim", 
-    "composite", 
-    "concat", 
-    "demux", 
-    "editor", 
-    "encode", 
-    "inspect", 
-    "multiencode", 
-    "process-smil", 
-    "segment-video"
+    "autotrim",
+    "composite",
+    "concat",
+    "demux",
+    "editor",
+    "encode",
+    "inspect",
+    "multiencode",
+    "process-smil",
+    "segment-video",
 ]
 
 
@@ -102,7 +102,10 @@ class MatterhornController(object):
         if not self.is_online():
             return 0
 
-        queued_jobs_count_url = f"{self.mh_url}/workflow/queuedJobCount"
+        operations = (
+            f"?operations={','.join(operation_types)}" if operation_types else ""
+        )
+        queued_jobs_count_url = f"{self.mh_url}/workflow/queuedJobCount{operations}"
         resp = requests.get(queued_jobs_count_url)
         if resp.status_code != 200:
             LOGGER.error(
@@ -121,7 +124,9 @@ class MatterhornController(object):
         try:
             return next(x for x in self._hosts if x.base_url == inst.mh_host_url)
         except StopIteration:
-            LOGGER.warn("Tried to get an unregistered host: {}".format(inst.mh_host_url))
+            LOGGER.warn(
+                "Tried to get an unregistered host: {}".format(inst.mh_host_url)
+            )
             return None
 
     def is_idle(self, inst):
